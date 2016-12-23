@@ -1,0 +1,1295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<meta name="description" content="Linux Kernel Documentation" />
+<meta name="keywords" content="linux,kernel,docs,howto,readme,documentation,notes,driver,tips,guides" />
+<meta name="copyright" content="Copyright (c) 2016 Mauriat Miranda" />
+<meta name="author" content="Mauriat Miranda" />
+<link rel="stylesheet" href="/css/kdoc.css" />
+<title>Linux Kernel Documentation :: networking : packet_mmap.txt</title>
+<script type="text/javascript">
+var swap=0;
+function hA(){
+if(swap) return;
+var d=document.getElementsByTagName('span');
+for(i=0;i<d.length;i++)
+if(d[i].className=='l')
+d[i].innerHTML="";
+swap=!swap;
+document.getElementById("corner").style.display="none";
+}
+</script>
+</head>
+<body><div id="kbody">
+<div id="tagline"><span class="aboutkernel"><a href="http://www.mjmwired.net/resources/mjm-kernel-docs.html">About Kernel Documentation</a></span><span class="bluelink"> <a href="http://www.kernel.org/" target="_blank">Linux Kernel</a> <a href="http://www.mjmwired.net/contact/">Contact</a> <a href="http://www.mjmwired.net/resources/">Linux Resources</a> <a href="http://www.mjmwired.net/linux/">Linux Blog</a></span></div>
+<!-- linkshort -->
+<script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<!-- KernelDoc LinkAds LN -->
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="ca-pub-5258443501063629"
+     data-ad-slot="8256902163"
+     data-ad-format="link"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+<p><g:plusone></g:plusone></p>
+
+<h2><a href="/kernel/Documentation">Documentation</a> / <a href="/kernel/Documentation/networking">networking</a> / <a href="/kernel/Documentation/networking/packet_mmap.txt">packet_mmap.txt</a></h2>
+<table>
+<tr><td>
+<!-- topbanner -->
+</td><td>
+</td></tr>
+</table>
+
+<br /><br /><br />
+
+<style type="text/css">
+@import url(//www.google.com/cse/api/branding.css);
+</style>
+<div class="cse-branding-bottom" style="background-color:#FFFFFF;color:#000000">
+  <div class="cse-branding-form">
+    <form action="https://www.mjmwired.net/kernel/Documentation/search" id="cse-search-box">
+      <div>
+        <input type="hidden" name="cx" value="partner-pub-5258443501063629:j1dm2i-kn8t" />
+        <input type="hidden" name="cof" value="FORID:10" />
+        <input type="hidden" name="ie" value="ISO-8859-1" />
+        <input type="text" name="q" size="96" />
+        <input type="submit" name="sa" value="Search" />
+      </div>
+    </form>
+  </div>
+  <div class="cse-branding-logo">
+    <img src="https://www.google.com/images/poweredby_transparent/poweredby_FFFFFF.gif" alt="Google" />
+  </div>
+  <div class="cse-branding-text">
+    Custom Search
+  </div>
+</div>
+
+
+
+<p><small>Based on kernel version <tt>4.8</tt>. Page generated on <tt>2016-10-06 23:18 EST</tt>.</small></p>
+<pre>
+<span class="l"><a name="1" href="#1">1</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="2" href="#2">2</a>	</span>+ ABSTRACT
+<span class="l"><a name="3" href="#3">3</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="4" href="#4">4</a>	</span>
+<span class="l"><a name="5" href="#5">5</a>	</span>This file documents the mmap() facility available with the PACKET
+<span class="l"><a name="6" href="#6">6</a>	</span>socket interface on 2.4/2.6/3.x kernels. This type of sockets is used for
+<span class="l"><a name="7" href="#7">7</a>	</span>i) capture network traffic with utilities like tcpdump, ii) transmit network
+<span class="l"><a name="8" href="#8">8</a>	</span>traffic, or any other that needs raw access to network interface.
+<span class="l"><a name="9" href="#9">9</a>	</span>
+<span class="l"><a name="10" href="#10">10</a>	</span>You can find the latest version of this document at:
+<span class="l"><a name="11" href="#11">11</a>	</span>    <a href="http://wiki.ipxwarzone.com/index.php5?title=Linux_packet_mmap" rel="nofollow" class="exu" target="_blank">http://wiki.ipxwarzone.com/index.php5?title=Linux_packet_mmap</a>
+<span class="l"><a name="12" href="#12">12</a>	</span>
+<span class="l"><a name="13" href="#13">13</a>	</span>Howto can be found at:
+<span class="l"><a name="14" href="#14">14</a>	</span>    <a href="http://wiki.gnu-log.net" rel="nofollow" class="exu" target="_blank">http://wiki.gnu-log.net</a> (packet_mmap)
+<span class="l"><a name="15" href="#15">15</a>	</span>
+<span class="l"><a name="16" href="#16">16</a>	</span>Please send your comments to
+<span class="l"><a name="17" href="#17">17</a>	</span>    Ulisses Alonso Camar&oacute; &lt;uaca@i.hate.spam.alumni.uv.es&gt;
+<span class="l"><a name="18" href="#18">18</a>	</span>    Johann Baudy &lt;johann.baudy@gnu-log.net&gt;
+<span class="l"><a name="19" href="#19">19</a>	</span>
+<span class="l"><a name="20" href="#20">20</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="21" href="#21">21</a>	</span>+ Why use PACKET_MMAP
+<span class="l"><a name="22" href="#22">22</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="23" href="#23">23</a>	</span>
+<span class="l"><a name="24" href="#24">24</a>	</span>In Linux 2.4/2.6/3.x if PACKET_MMAP is not enabled, the capture process is very
+<span class="l"><a name="25" href="#25">25</a>	</span>inefficient. It uses very limited buffers and requires one system call to
+<span class="l"><a name="26" href="#26">26</a>	</span>capture each packet, it requires two if you want to get packet's timestamp
+<span class="l"><a name="27" href="#27">27</a>	</span>(like libpcap always does).
+<span class="l"><a name="28" href="#28">28</a>	</span>
+<span class="l"><a name="29" href="#29">29</a>	</span>In the other hand PACKET_MMAP is very efficient. PACKET_MMAP provides a size 
+<span class="l"><a name="30" href="#30">30</a>	</span>configurable circular buffer mapped in user space that can be used to either
+<span class="l"><a name="31" href="#31">31</a>	</span>send or receive packets. This way reading packets just needs to wait for them,
+<span class="l"><a name="32" href="#32">32</a>	</span>most of the time there is no need to issue a single system call. Concerning
+<span class="l"><a name="33" href="#33">33</a>	</span>transmission, multiple packets can be sent through one system call to get the
+<span class="l"><a name="34" href="#34">34</a>	</span>highest bandwidth. By using a shared buffer between the kernel and the user
+<span class="l"><a name="35" href="#35">35</a>	</span>also has the benefit of minimizing packet copies.
+<span class="l"><a name="36" href="#36">36</a>	</span>
+<span class="l"><a name="37" href="#37">37</a>	</span>It's fine to use PACKET_MMAP to improve the performance of the capture and
+<span class="l"><a name="38" href="#38">38</a>	</span>transmission process, but it isn't everything. At least, if you are capturing
+<span class="l"><a name="39" href="#39">39</a>	</span>at high speeds (this is relative to the cpu speed), you should check if the
+<span class="l"><a name="40" href="#40">40</a>	</span>device driver of your network interface card supports some sort of interrupt
+<span class="l"><a name="41" href="#41">41</a>	</span>load mitigation or (even better) if it supports NAPI, also make sure it is
+<span class="l"><a name="42" href="#42">42</a>	</span>enabled. For transmission, check the MTU (Maximum Transmission Unit) used and
+<span class="l"><a name="43" href="#43">43</a>	</span>supported by devices of your network. CPU IRQ pinning of your network interface
+<span class="l"><a name="44" href="#44">44</a>	</span>card can also be an advantage.
+<span class="l"><a name="45" href="#45">45</a>	</span>
+<span class="l"><a name="46" href="#46">46</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="47" href="#47">47</a>	</span>+ How to use mmap() to improve capture process
+<span class="l"><a name="48" href="#48">48</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="49" href="#49">49</a>	</span>
+<span class="l"><a name="50" href="#50">50</a>	</span>From the user standpoint, you should use the higher level libpcap library, which
+<span class="l"><a name="51" href="#51">51</a>	</span>is a de facto standard, portable across nearly all operating systems
+<span class="l"><a name="52" href="#52">52</a>	</span>including Win32. 
+<span class="l"><a name="53" href="#53">53</a>	</span>
+<span class="l"><a name="54" href="#54">54</a>	</span>Said that, at time of this writing, official libpcap 0.8.1 is out and doesn't include
+<span class="l"><a name="55" href="#55">55</a>	</span>support for PACKET_MMAP, and also probably the libpcap included in your distribution. 
+<span class="l"><a name="56" href="#56">56</a>	</span>
+<span class="l"><a name="57" href="#57">57</a>	</span>I'm aware of two implementations of PACKET_MMAP in libpcap:
+<span class="l"><a name="58" href="#58">58</a>	</span>
+<span class="l"><a name="59" href="#59">59</a>	</span>    <a href="http://wiki.ipxwarzone.com/" rel="nofollow" class="exu" target="_blank">http://wiki.ipxwarzone.com/</a>		     (by Simon Patarin, based on libpcap 0.6.2)
+<span class="l"><a name="60" href="#60">60</a>	</span>    <a href="http://public.lanl.gov/cpw/" rel="nofollow" class="exu" target="_blank">http://public.lanl.gov/cpw/</a>              (by Phil Wood, based on lastest libpcap)
+<span class="l"><a name="61" href="#61">61</a>	</span>
+<span class="l"><a name="62" href="#62">62</a>	</span>The rest of this document is intended for people who want to understand
+<span class="l"><a name="63" href="#63">63</a>	</span>the low level details or want to improve libpcap by including PACKET_MMAP
+<span class="l"><a name="64" href="#64">64</a>	</span>support.
+<span class="l"><a name="65" href="#65">65</a>	</span>
+<span class="l"><a name="66" href="#66">66</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="67" href="#67">67</a>	</span>+ How to use mmap() directly to improve capture process
+<span class="l"><a name="68" href="#68">68</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="69" href="#69">69</a>	</span>
+<span class="l"><a name="70" href="#70">70</a>	</span>From the system calls stand point, the use of PACKET_MMAP involves
+<span class="l"><a name="71" href="#71">71</a>	</span>the following process:
+<span class="l"><a name="72" href="#72">72</a>	</span>
+<span class="l"><a name="73" href="#73">73</a>	</span>
+<span class="l"><a name="74" href="#74">74</a>	</span>[setup]     socket() -------&gt; creation of the capture socket
+<span class="l"><a name="75" href="#75">75</a>	</span>            setsockopt() ---&gt; allocation of the circular buffer (ring)
+<span class="l"><a name="76" href="#76">76</a>	</span>                              option: PACKET_RX_RING
+<span class="l"><a name="77" href="#77">77</a>	</span>            mmap() ---------&gt; mapping of the allocated buffer to the
+<span class="l"><a name="78" href="#78">78</a>	</span>                              user process
+<span class="l"><a name="79" href="#79">79</a>	</span>
+<span class="l"><a name="80" href="#80">80</a>	</span>[capture]   poll() ---------&gt; to wait for incoming packets
+<span class="l"><a name="81" href="#81">81</a>	</span>
+<span class="l"><a name="82" href="#82">82</a>	</span>[shutdown]  close() --------&gt; destruction of the capture socket and
+<span class="l"><a name="83" href="#83">83</a>	</span>                              deallocation of all associated 
+<span class="l"><a name="84" href="#84">84</a>	</span>                              resources.
+<span class="l"><a name="85" href="#85">85</a>	</span>
+<span class="l"><a name="86" href="#86">86</a>	</span>
+<span class="l"><a name="87" href="#87">87</a>	</span>socket creation and destruction is straight forward, and is done 
+<span class="l"><a name="88" href="#88">88</a>	</span>the same way with or without PACKET_MMAP:
+<span class="l"><a name="89" href="#89">89</a>	</span>
+<span class="l"><a name="90" href="#90">90</a>	</span> int fd = socket(PF_PACKET, mode, htons(ETH_P_ALL));
+<span class="l"><a name="91" href="#91">91</a>	</span>
+<span class="l"><a name="92" href="#92">92</a>	</span>where mode is SOCK_RAW for the raw interface were link level
+<span class="l"><a name="93" href="#93">93</a>	</span>information can be captured or SOCK_DGRAM for the cooked
+<span class="l"><a name="94" href="#94">94</a>	</span>interface where link level information capture is not 
+<span class="l"><a name="95" href="#95">95</a>	</span>supported and a link level pseudo-header is provided 
+<span class="l"><a name="96" href="#96">96</a>	</span>by the kernel.
+<span class="l"><a name="97" href="#97">97</a>	</span>
+<span class="l"><a name="98" href="#98">98</a>	</span>The destruction of the socket and all associated resources
+<span class="l"><a name="99" href="#99">99</a>	</span>is done by a simple call to close(fd).
+<span class="l"><a name="100" href="#100">100</a>	</span>
+<span class="l"><a name="101" href="#101">101</a>	</span>Similarly as without PACKET_MMAP, it is possible to use one socket
+<span class="l"><a name="102" href="#102">102</a>	</span>for capture and transmission. This can be done by mapping the
+<span class="l"><a name="103" href="#103">103</a>	</span>allocated RX and TX buffer ring with a single mmap() call.
+<span class="l"><a name="104" href="#104">104</a>	</span>See "Mapping and use of the circular buffer (ring)".
+<span class="l"><a name="105" href="#105">105</a>	</span>
+<span class="l"><a name="106" href="#106">106</a>	</span>Next I will describe PACKET_MMAP settings and its constraints,
+<span class="l"><a name="107" href="#107">107</a>	</span>also the mapping of the circular buffer in the user process and 
+<span class="l"><a name="108" href="#108">108</a>	</span>the use of this buffer.
+<span class="l"><a name="109" href="#109">109</a>	</span>
+<span class="l"><a name="110" href="#110">110</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="111" href="#111">111</a>	</span>+ How to use mmap() directly to improve transmission process
+<span class="l"><a name="112" href="#112">112</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="113" href="#113">113</a>	</span>Transmission process is similar to capture as shown below.
+<span class="l"><a name="114" href="#114">114</a>	</span>
+<span class="l"><a name="115" href="#115">115</a>	</span>[setup]          socket() -------&gt; creation of the transmission socket
+<span class="l"><a name="116" href="#116">116</a>	</span>                 setsockopt() ---&gt; allocation of the circular buffer (ring)
+<span class="l"><a name="117" href="#117">117</a>	</span>                                   option: PACKET_TX_RING
+<span class="l"><a name="118" href="#118">118</a>	</span>                 bind() ---------&gt; bind transmission socket with a network interface
+<span class="l"><a name="119" href="#119">119</a>	</span>                 mmap() ---------&gt; mapping of the allocated buffer to the
+<span class="l"><a name="120" href="#120">120</a>	</span>                                   user process
+<span class="l"><a name="121" href="#121">121</a>	</span>
+<span class="l"><a name="122" href="#122">122</a>	</span>[transmission]   poll() ---------&gt; wait for free packets (optional)
+<span class="l"><a name="123" href="#123">123</a>	</span>                 send() ---------&gt; send all packets that are set as ready in
+<span class="l"><a name="124" href="#124">124</a>	</span>                                   the ring
+<span class="l"><a name="125" href="#125">125</a>	</span>                                   The flag MSG_DONTWAIT can be used to return
+<span class="l"><a name="126" href="#126">126</a>	</span>                                   before end of transfer.
+<span class="l"><a name="127" href="#127">127</a>	</span>
+<span class="l"><a name="128" href="#128">128</a>	</span>[shutdown]  close() --------&gt; destruction of the transmission socket and
+<span class="l"><a name="129" href="#129">129</a>	</span>                              deallocation of all associated resources.
+<span class="l"><a name="130" href="#130">130</a>	</span>
+<span class="l"><a name="131" href="#131">131</a>	</span>Socket creation and destruction is also straight forward, and is done
+<span class="l"><a name="132" href="#132">132</a>	</span>the same way as in capturing described in the previous paragraph:
+<span class="l"><a name="133" href="#133">133</a>	</span>
+<span class="l"><a name="134" href="#134">134</a>	</span> int fd = socket(PF_PACKET, mode, 0);
+<span class="l"><a name="135" href="#135">135</a>	</span>
+<span class="l"><a name="136" href="#136">136</a>	</span>The protocol can optionally be 0 in case we only want to transmit
+<span class="l"><a name="137" href="#137">137</a>	</span>via this socket, which avoids an expensive call to packet_rcv().
+<span class="l"><a name="138" href="#138">138</a>	</span>In this case, you also need to bind(2) the TX_RING with sll_protocol = 0
+<span class="l"><a name="139" href="#139">139</a>	</span>set. Otherwise, htons(ETH_P_ALL) or any other protocol, for example.
+<span class="l"><a name="140" href="#140">140</a>	</span>
+<span class="l"><a name="141" href="#141">141</a>	</span>Binding the socket to your network interface is mandatory (with zero copy) to
+<span class="l"><a name="142" href="#142">142</a>	</span>know the header size of frames used in the circular buffer.
+<span class="l"><a name="143" href="#143">143</a>	</span>
+<span class="l"><a name="144" href="#144">144</a>	</span>As capture, each frame contains two parts:
+<span class="l"><a name="145" href="#145">145</a>	</span>
+<span class="l"><a name="146" href="#146">146</a>	</span> --------------------
+<span class="l"><a name="147" href="#147">147</a>	</span>| struct tpacket_hdr | Header. It contains the status of
+<span class="l"><a name="148" href="#148">148</a>	</span>|                    | of this frame
+<span class="l"><a name="149" href="#149">149</a>	</span>|--------------------|
+<span class="l"><a name="150" href="#150">150</a>	</span>| data buffer        |
+<span class="l"><a name="151" href="#151">151</a>	</span>.                    .  Data that will be sent over the network interface.
+<span class="l"><a name="152" href="#152">152</a>	</span>.                    .
+<span class="l"><a name="153" href="#153">153</a>	</span> --------------------
+<span class="l"><a name="154" href="#154">154</a>	</span>
+<span class="l"><a name="155" href="#155">155</a>	</span> bind() associates the socket to your network interface thanks to
+<span class="l"><a name="156" href="#156">156</a>	</span> sll_ifindex parameter of struct sockaddr_ll.
+<span class="l"><a name="157" href="#157">157</a>	</span>
+<span class="l"><a name="158" href="#158">158</a>	</span> Initialization example:
+<span class="l"><a name="159" href="#159">159</a>	</span>
+<span class="l"><a name="160" href="#160">160</a>	</span> struct sockaddr_ll my_addr;
+<span class="l"><a name="161" href="#161">161</a>	</span> struct ifreq s_ifr;
+<span class="l"><a name="162" href="#162">162</a>	</span> ...
+<span class="l"><a name="163" href="#163">163</a>	</span>
+<span class="l"><a name="164" href="#164">164</a>	</span> strncpy (s_ifr.ifr_name, "eth0", sizeof(s_ifr.ifr_name));
+<span class="l"><a name="165" href="#165">165</a>	</span>
+<span class="l"><a name="166" href="#166">166</a>	</span> /* get interface index of eth0 */
+<span class="l"><a name="167" href="#167">167</a>	</span> ioctl(this-&gt;socket, SIOCGIFINDEX, &amp;s_ifr);
+<span class="l"><a name="168" href="#168">168</a>	</span>
+<span class="l"><a name="169" href="#169">169</a>	</span> /* fill sockaddr_ll struct to prepare binding */
+<span class="l"><a name="170" href="#170">170</a>	</span> my_addr.sll_family = AF_PACKET;
+<span class="l"><a name="171" href="#171">171</a>	</span> my_addr.sll_protocol = htons(ETH_P_ALL);
+<span class="l"><a name="172" href="#172">172</a>	</span> my_addr.sll_ifindex =  s_ifr.ifr_ifindex;
+<span class="l"><a name="173" href="#173">173</a>	</span>
+<span class="l"><a name="174" href="#174">174</a>	</span> /* bind socket to eth0 */
+<span class="l"><a name="175" href="#175">175</a>	</span> bind(this-&gt;socket, (struct sockaddr *)&amp;my_addr, sizeof(struct sockaddr_ll));
+<span class="l"><a name="176" href="#176">176</a>	</span>
+<span class="l"><a name="177" href="#177">177</a>	</span> A complete tutorial is available at: <a href="http://wiki.gnu-log.net/" rel="nofollow" class="exu" target="_blank">http://wiki.gnu-log.net/</a>
+<span class="l"><a name="178" href="#178">178</a>	</span>
+<span class="l"><a name="179" href="#179">179</a>	</span>By default, the user should put data at :
+<span class="l"><a name="180" href="#180">180</a>	</span> frame base + TPACKET_HDRLEN - sizeof(struct sockaddr_ll)
+<span class="l"><a name="181" href="#181">181</a>	</span>
+<span class="l"><a name="182" href="#182">182</a>	</span>So, whatever you choose for the socket mode (SOCK_DGRAM or SOCK_RAW),
+<span class="l"><a name="183" href="#183">183</a>	</span>the beginning of the user data will be at :
+<span class="l"><a name="184" href="#184">184</a>	</span> frame base + TPACKET_ALIGN(sizeof(struct tpacket_hdr))
+<span class="l"><a name="185" href="#185">185</a>	</span>
+<span class="l"><a name="186" href="#186">186</a>	</span>If you wish to put user data at a custom offset from the beginning of
+<span class="l"><a name="187" href="#187">187</a>	</span>the frame (for payload alignment with SOCK_RAW mode for instance) you
+<span class="l"><a name="188" href="#188">188</a>	</span>can set tp_net (with SOCK_DGRAM) or tp_mac (with SOCK_RAW). In order
+<span class="l"><a name="189" href="#189">189</a>	</span>to make this work it must be enabled previously with setsockopt()
+<span class="l"><a name="190" href="#190">190</a>	</span>and the PACKET_TX_HAS_OFF option.
+<span class="l"><a name="191" href="#191">191</a>	</span>
+<span class="l"><a name="192" href="#192">192</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="193" href="#193">193</a>	</span>+ PACKET_MMAP settings
+<span class="l"><a name="194" href="#194">194</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="195" href="#195">195</a>	</span>
+<span class="l"><a name="196" href="#196">196</a>	</span>To setup PACKET_MMAP from user level code is done with a call like
+<span class="l"><a name="197" href="#197">197</a>	</span>
+<span class="l"><a name="198" href="#198">198</a>	</span> - Capture process
+<span class="l"><a name="199" href="#199">199</a>	</span>     setsockopt(fd, SOL_PACKET, PACKET_RX_RING, (void *) &amp;req, sizeof(req))
+<span class="l"><a name="200" href="#200">200</a>	</span> - Transmission process
+<span class="l"><a name="201" href="#201">201</a>	</span>     setsockopt(fd, SOL_PACKET, PACKET_TX_RING, (void *) &amp;req, sizeof(req))
+<span class="l"><a name="202" href="#202">202</a>	</span>
+<span class="l"><a name="203" href="#203">203</a>	</span>The most significant argument in the previous call is the req parameter, 
+<span class="l"><a name="204" href="#204">204</a>	</span>this parameter must to have the following structure:
+<span class="l"><a name="205" href="#205">205</a>	</span>
+<span class="l"><a name="206" href="#206">206</a>	</span>    struct tpacket_req
+<span class="l"><a name="207" href="#207">207</a>	</span>    {
+<span class="l"><a name="208" href="#208">208</a>	</span>        unsigned int    tp_block_size;  /* Minimal size of contiguous block */
+<span class="l"><a name="209" href="#209">209</a>	</span>        unsigned int    tp_block_nr;    /* Number of blocks */
+<span class="l"><a name="210" href="#210">210</a>	</span>        unsigned int    tp_frame_size;  /* Size of frame */
+<span class="l"><a name="211" href="#211">211</a>	</span>        unsigned int    tp_frame_nr;    /* Total number of frames */
+<span class="l"><a name="212" href="#212">212</a>	</span>    };
+<span class="l"><a name="213" href="#213">213</a>	</span>
+<span class="l"><a name="214" href="#214">214</a>	</span>This structure is defined in /usr/include/linux/if_packet.h and establishes a 
+<span class="l"><a name="215" href="#215">215</a>	</span>circular buffer (ring) of unswappable memory.
+<span class="l"><a name="216" href="#216">216</a>	</span>Being mapped in the capture process allows reading the captured frames and 
+<span class="l"><a name="217" href="#217">217</a>	</span>related meta-information like timestamps without requiring a system call.
+<span class="l"><a name="218" href="#218">218</a>	</span>
+<span class="l"><a name="219" href="#219">219</a>	</span>Frames are grouped in blocks. Each block is a physically contiguous
+<span class="l"><a name="220" href="#220">220</a>	</span>region of memory and holds tp_block_size/tp_frame_size frames. The total number 
+<span class="l"><a name="221" href="#221">221</a>	</span>of blocks is tp_block_nr. Note that tp_frame_nr is a redundant parameter because
+<span class="l"><a name="222" href="#222">222</a>	</span>
+<span class="l"><a name="223" href="#223">223</a>	</span>    frames_per_block = tp_block_size/tp_frame_size
+<span class="l"><a name="224" href="#224">224</a>	</span>
+<span class="l"><a name="225" href="#225">225</a>	</span>indeed, packet_set_ring checks that the following condition is true
+<span class="l"><a name="226" href="#226">226</a>	</span>
+<span class="l"><a name="227" href="#227">227</a>	</span>    frames_per_block * tp_block_nr == tp_frame_nr
+<span class="l"><a name="228" href="#228">228</a>	</span>
+<span class="l"><a name="229" href="#229">229</a>	</span>Lets see an example, with the following values:
+<span class="l"><a name="230" href="#230">230</a>	</span>
+<span class="l"><a name="231" href="#231">231</a>	</span>     tp_block_size= 4096
+<span class="l"><a name="232" href="#232">232</a>	</span>     tp_frame_size= 2048
+<span class="l"><a name="233" href="#233">233</a>	</span>     tp_block_nr  = 4
+<span class="l"><a name="234" href="#234">234</a>	</span>     tp_frame_nr  = 8
+<span class="l"><a name="235" href="#235">235</a>	</span>
+<span class="l"><a name="236" href="#236">236</a>	</span>we will get the following buffer structure:
+<span class="l"><a name="237" href="#237">237</a>	</span>
+<span class="l"><a name="238" href="#238">238</a>	</span>        block #1                 block #2         
+<span class="l"><a name="239" href="#239">239</a>	</span>+---------+---------+    +---------+---------+    
+<span class="l"><a name="240" href="#240">240</a>	</span>| frame 1 | frame 2 |    | frame 3 | frame 4 |    
+<span class="l"><a name="241" href="#241">241</a>	</span>+---------+---------+    +---------+---------+    
+<span class="l"><a name="242" href="#242">242</a>	</span>
+<span class="l"><a name="243" href="#243">243</a>	</span>        block #3                 block #4
+<span class="l"><a name="244" href="#244">244</a>	</span>+---------+---------+    +---------+---------+
+<span class="l"><a name="245" href="#245">245</a>	</span>| frame 5 | frame 6 |    | frame 7 | frame 8 |
+<span class="l"><a name="246" href="#246">246</a>	</span>+---------+---------+    +---------+---------+
+<span class="l"><a name="247" href="#247">247</a>	</span>
+<span class="l"><a name="248" href="#248">248</a>	</span>A frame can be of any size with the only condition it can fit in a block. A block
+<span class="l"><a name="249" href="#249">249</a>	</span>can only hold an integer number of frames, or in other words, a frame cannot 
+<span class="l"><a name="250" href="#250">250</a>	</span>be spawned across two blocks, so there are some details you have to take into 
+<span class="l"><a name="251" href="#251">251</a>	</span>account when choosing the frame_size. See "Mapping and use of the circular 
+<span class="l"><a name="252" href="#252">252</a>	</span>buffer (ring)".
+<span class="l"><a name="253" href="#253">253</a>	</span>
+<span class="l"><a name="254" href="#254">254</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="255" href="#255">255</a>	</span>+ PACKET_MMAP setting constraints
+<span class="l"><a name="256" href="#256">256</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="257" href="#257">257</a>	</span>
+<span class="l"><a name="258" href="#258">258</a>	</span>In kernel versions prior to 2.4.26 (for the 2.4 branch) and 2.6.5 (2.6 branch),
+<span class="l"><a name="259" href="#259">259</a>	</span>the PACKET_MMAP buffer could hold only 32768 frames in a 32 bit architecture or
+<span class="l"><a name="260" href="#260">260</a>	</span>16384 in a 64 bit architecture. For information on these kernel versions
+<span class="l"><a name="261" href="#261">261</a>	</span>see <a href="http://pusa.uv.es/~ulisses/packet_mmap/packet_mmap.pre-2.4.26_2.6.5.txt" rel="nofollow" class="exu" target="_blank">http://pusa.uv.es/~ulisses/packet_mmap/packet_mmap.pre-2.4.26_2.6.5.txt</a>
+<span class="l"><a name="262" href="#262">262</a>	</span>
+<span class="l"><a name="263" href="#263">263</a>	</span> Block size limit
+<span class="l"><a name="264" href="#264">264</a>	</span>------------------
+<span class="l"><a name="265" href="#265">265</a>	</span>
+<span class="l"><a name="266" href="#266">266</a>	</span>As stated earlier, each block is a contiguous physical region of memory. These 
+<span class="l"><a name="267" href="#267">267</a>	</span>memory regions are allocated with calls to the __get_free_pages() function. As 
+<span class="l"><a name="268" href="#268">268</a>	</span>the name indicates, this function allocates pages of memory, and the second
+<span class="l"><a name="269" href="#269">269</a>	</span>argument is "order" or a power of two number of pages, that is 
+<span class="l"><a name="270" href="#270">270</a>	</span>(for PAGE_SIZE == 4096) order=0 ==&gt; 4096 bytes, order=1 ==&gt; 8192 bytes, 
+<span class="l"><a name="271" href="#271">271</a>	</span>order=2 ==&gt; 16384 bytes, etc. The maximum size of a 
+<span class="l"><a name="272" href="#272">272</a>	</span>region allocated by __get_free_pages is determined by the MAX_ORDER macro. More 
+<span class="l"><a name="273" href="#273">273</a>	</span>precisely the limit can be calculated as:
+<span class="l"><a name="274" href="#274">274</a>	</span>
+<span class="l"><a name="275" href="#275">275</a>	</span>   PAGE_SIZE &lt;&lt; MAX_ORDER
+<span class="l"><a name="276" href="#276">276</a>	</span>
+<span class="l"><a name="277" href="#277">277</a>	</span>   In a i386 architecture PAGE_SIZE is 4096 bytes 
+<span class="l"><a name="278" href="#278">278</a>	</span>   In a 2.4/i386 kernel MAX_ORDER is 10
+<span class="l"><a name="279" href="#279">279</a>	</span>   In a 2.6/i386 kernel MAX_ORDER is 11
+<span class="l"><a name="280" href="#280">280</a>	</span>
+<span class="l"><a name="281" href="#281">281</a>	</span>So get_free_pages can allocate as much as 4MB or 8MB in a 2.4/2.6 kernel 
+<span class="l"><a name="282" href="#282">282</a>	</span>respectively, with an i386 architecture.
+<span class="l"><a name="283" href="#283">283</a>	</span>
+<span class="l"><a name="284" href="#284">284</a>	</span>User space programs can include /usr/include/sys/user.h and 
+<span class="l"><a name="285" href="#285">285</a>	</span>/usr/include/linux/mmzone.h to get PAGE_SIZE MAX_ORDER declarations.
+<span class="l"><a name="286" href="#286">286</a>	</span>
+<span class="l"><a name="287" href="#287">287</a>	</span>The pagesize can also be determined dynamically with the getpagesize (2) 
+<span class="l"><a name="288" href="#288">288</a>	</span>system call. 
+<span class="l"><a name="289" href="#289">289</a>	</span>
+<span class="l"><a name="290" href="#290">290</a>	</span> Block number limit
+<span class="l"><a name="291" href="#291">291</a>	</span>--------------------
+<span class="l"><a name="292" href="#292">292</a>	</span>
+<span class="l"><a name="293" href="#293">293</a>	</span>To understand the constraints of PACKET_MMAP, we have to see the structure 
+<span class="l"><a name="294" href="#294">294</a>	</span>used to hold the pointers to each block.
+<span class="l"><a name="295" href="#295">295</a>	</span>
+<span class="l"><a name="296" href="#296">296</a>	</span>Currently, this structure is a dynamically allocated vector with kmalloc 
+<span class="l"><a name="297" href="#297">297</a>	</span>called pg_vec, its size limits the number of blocks that can be allocated.
+<span class="l"><a name="298" href="#298">298</a>	</span>
+<span class="l"><a name="299" href="#299">299</a>	</span>    +---+---+---+---+
+<span class="l"><a name="300" href="#300">300</a>	</span>    | x | x | x | x |
+<span class="l"><a name="301" href="#301">301</a>	</span>    +---+---+---+---+
+<span class="l"><a name="302" href="#302">302</a>	</span>      |   |   |   |
+<span class="l"><a name="303" href="#303">303</a>	</span>      |   |   |   v
+<span class="l"><a name="304" href="#304">304</a>	</span>      |   |   v  block #4
+<span class="l"><a name="305" href="#305">305</a>	</span>      |   v  block #3
+<span class="l"><a name="306" href="#306">306</a>	</span>      v  block #2
+<span class="l"><a name="307" href="#307">307</a>	</span>     block #1
+<span class="l"><a name="308" href="#308">308</a>	</span>
+<span class="l"><a name="309" href="#309">309</a>	</span>kmalloc allocates any number of bytes of physically contiguous memory from 
+<span class="l"><a name="310" href="#310">310</a>	</span>a pool of pre-determined sizes. This pool of memory is maintained by the slab 
+<span class="l"><a name="311" href="#311">311</a>	</span>allocator which is at the end the responsible for doing the allocation and 
+<span class="l"><a name="312" href="#312">312</a>	</span>hence which imposes the maximum memory that kmalloc can allocate. 
+<span class="l"><a name="313" href="#313">313</a>	</span>
+<span class="l"><a name="314" href="#314">314</a>	</span>In a 2.4/2.6 kernel and the i386 architecture, the limit is 131072 bytes. The 
+<span class="l"><a name="315" href="#315">315</a>	</span>predetermined sizes that kmalloc uses can be checked in the "size-&lt;bytes&gt;" 
+<span class="l"><a name="316" href="#316">316</a>	</span>entries of /proc/slabinfo
+<span class="l"><a name="317" href="#317">317</a>	</span>
+<span class="l"><a name="318" href="#318">318</a>	</span>In a 32 bit architecture, pointers are 4 bytes long, so the total number of 
+<span class="l"><a name="319" href="#319">319</a>	</span>pointers to blocks is
+<span class="l"><a name="320" href="#320">320</a>	</span>
+<span class="l"><a name="321" href="#321">321</a>	</span>     131072/4 = 32768 blocks
+<span class="l"><a name="322" href="#322">322</a>	</span>
+<span class="l"><a name="323" href="#323">323</a>	</span> PACKET_MMAP buffer size calculator
+<span class="l"><a name="324" href="#324">324</a>	</span>------------------------------------
+<span class="l"><a name="325" href="#325">325</a>	</span>
+<span class="l"><a name="326" href="#326">326</a>	</span>Definitions:
+<span class="l"><a name="327" href="#327">327</a>	</span>
+<span class="l"><a name="328" href="#328">328</a>	</span>&lt;size-max&gt;    : is the maximum size of allocable with kmalloc (see /proc/slabinfo)
+<span class="l"><a name="329" href="#329">329</a>	</span>&lt;pointer size&gt;: depends on the architecture -- sizeof(void *)
+<span class="l"><a name="330" href="#330">330</a>	</span>&lt;page size&gt;   : depends on the architecture -- PAGE_SIZE or getpagesize (2)
+<span class="l"><a name="331" href="#331">331</a>	</span>&lt;max-order&gt;   : is the value defined with MAX_ORDER
+<span class="l"><a name="332" href="#332">332</a>	</span>&lt;frame size&gt;  : it's an upper bound of frame's capture size (more on this later)
+<span class="l"><a name="333" href="#333">333</a>	</span>
+<span class="l"><a name="334" href="#334">334</a>	</span>from these definitions we will derive 
+<span class="l"><a name="335" href="#335">335</a>	</span>
+<span class="l"><a name="336" href="#336">336</a>	</span>	&lt;block number&gt; = &lt;size-max&gt;/&lt;pointer size&gt;
+<span class="l"><a name="337" href="#337">337</a>	</span>	&lt;block size&gt; = &lt;pagesize&gt; &lt;&lt; &lt;max-order&gt;
+<span class="l"><a name="338" href="#338">338</a>	</span>
+<span class="l"><a name="339" href="#339">339</a>	</span>so, the max buffer size is
+<span class="l"><a name="340" href="#340">340</a>	</span>
+<span class="l"><a name="341" href="#341">341</a>	</span>	&lt;block number&gt; * &lt;block size&gt;
+<span class="l"><a name="342" href="#342">342</a>	</span>
+<span class="l"><a name="343" href="#343">343</a>	</span>and, the number of frames be
+<span class="l"><a name="344" href="#344">344</a>	</span>
+<span class="l"><a name="345" href="#345">345</a>	</span>	&lt;block number&gt; * &lt;block size&gt; / &lt;frame size&gt;
+<span class="l"><a name="346" href="#346">346</a>	</span>
+<span class="l"><a name="347" href="#347">347</a>	</span>Suppose the following parameters, which apply for 2.6 kernel and an
+<span class="l"><a name="348" href="#348">348</a>	</span>i386 architecture:
+<span class="l"><a name="349" href="#349">349</a>	</span>
+<span class="l"><a name="350" href="#350">350</a>	</span>	&lt;size-max&gt; = 131072 bytes
+<span class="l"><a name="351" href="#351">351</a>	</span>	&lt;pointer size&gt; = 4 bytes
+<span class="l"><a name="352" href="#352">352</a>	</span>	&lt;pagesize&gt; = 4096 bytes
+<span class="l"><a name="353" href="#353">353</a>	</span>	&lt;max-order&gt; = 11
+<span class="l"><a name="354" href="#354">354</a>	</span>
+<span class="l"><a name="355" href="#355">355</a>	</span>and a value for &lt;frame size&gt; of 2048 bytes. These parameters will yield
+<span class="l"><a name="356" href="#356">356</a>	</span>
+<span class="l"><a name="357" href="#357">357</a>	</span>	&lt;block number&gt; = 131072/4 = 32768 blocks
+<span class="l"><a name="358" href="#358">358</a>	</span>	&lt;block size&gt; = 4096 &lt;&lt; 11 = 8 MiB.
+<span class="l"><a name="359" href="#359">359</a>	</span>
+<span class="l"><a name="360" href="#360">360</a>	</span>and hence the buffer will have a 262144 MiB size. So it can hold 
+<span class="l"><a name="361" href="#361">361</a>	</span>262144 MiB / 2048 bytes = 134217728 frames
+<span class="l"><a name="362" href="#362">362</a>	</span>
+<span class="l"><a name="363" href="#363">363</a>	</span>Actually, this buffer size is not possible with an i386 architecture. 
+<span class="l"><a name="364" href="#364">364</a>	</span>Remember that the memory is allocated in kernel space, in the case of 
+<span class="l"><a name="365" href="#365">365</a>	</span>an i386 kernel's memory size is limited to 1GiB.
+<span class="l"><a name="366" href="#366">366</a>	</span>
+<span class="l"><a name="367" href="#367">367</a>	</span>All memory allocations are not freed until the socket is closed. The memory 
+<span class="l"><a name="368" href="#368">368</a>	</span>allocations are done with GFP_KERNEL priority, this basically means that 
+<span class="l"><a name="369" href="#369">369</a>	</span>the allocation can wait and swap other process' memory in order to allocate 
+<span class="l"><a name="370" href="#370">370</a>	</span>the necessary memory, so normally limits can be reached.
+<span class="l"><a name="371" href="#371">371</a>	</span>
+<span class="l"><a name="372" href="#372">372</a>	</span> Other constraints
+<span class="l"><a name="373" href="#373">373</a>	</span>-------------------
+<span class="l"><a name="374" href="#374">374</a>	</span>
+<span class="l"><a name="375" href="#375">375</a>	</span>If you check the source code you will see that what I draw here as a frame
+<span class="l"><a name="376" href="#376">376</a>	</span>is not only the link level frame. At the beginning of each frame there is a 
+<span class="l"><a name="377" href="#377">377</a>	</span>header called struct tpacket_hdr used in PACKET_MMAP to hold link level's frame
+<span class="l"><a name="378" href="#378">378</a>	</span>meta information like timestamp. So what we draw here a frame it's really 
+<span class="l"><a name="379" href="#379">379</a>	</span>the following (from include/linux/if_packet.h):
+<span class="l"><a name="380" href="#380">380</a>	</span>
+<span class="l"><a name="381" href="#381">381</a>	</span>/*
+<span class="l"><a name="382" href="#382">382</a>	</span>   Frame structure:
+<span class="l"><a name="383" href="#383">383</a>	</span>
+<span class="l"><a name="384" href="#384">384</a>	</span>   - Start. Frame must be aligned to TPACKET_ALIGNMENT=16
+<span class="l"><a name="385" href="#385">385</a>	</span>   - struct tpacket_hdr
+<span class="l"><a name="386" href="#386">386</a>	</span>   - pad to TPACKET_ALIGNMENT=16
+<span class="l"><a name="387" href="#387">387</a>	</span>   - struct sockaddr_ll
+<span class="l"><a name="388" href="#388">388</a>	</span>   - Gap, chosen so that packet data (Start+tp_net) aligns to 
+<span class="l"><a name="389" href="#389">389</a>	</span>     TPACKET_ALIGNMENT=16
+<span class="l"><a name="390" href="#390">390</a>	</span>   - Start+tp_mac: [ Optional MAC header ]
+<span class="l"><a name="391" href="#391">391</a>	</span>   - Start+tp_net: Packet data, aligned to TPACKET_ALIGNMENT=16.
+<span class="l"><a name="392" href="#392">392</a>	</span>   - Pad to align to TPACKET_ALIGNMENT=16
+<span class="l"><a name="393" href="#393">393</a>	</span> */
+<span class="l"><a name="394" href="#394">394</a>	</span> 
+<span class="l"><a name="395" href="#395">395</a>	</span> The following are conditions that are checked in packet_set_ring
+<span class="l"><a name="396" href="#396">396</a>	</span>
+<span class="l"><a name="397" href="#397">397</a>	</span>   tp_block_size must be a multiple of PAGE_SIZE (1)
+<span class="l"><a name="398" href="#398">398</a>	</span>   tp_frame_size must be greater than TPACKET_HDRLEN (obvious)
+<span class="l"><a name="399" href="#399">399</a>	</span>   tp_frame_size must be a multiple of TPACKET_ALIGNMENT
+<span class="l"><a name="400" href="#400">400</a>	</span>   tp_frame_nr   must be exactly frames_per_block*tp_block_nr
+<span class="l"><a name="401" href="#401">401</a>	</span>
+<span class="l"><a name="402" href="#402">402</a>	</span>Note that tp_block_size should be chosen to be a power of two or there will
+<span class="l"><a name="403" href="#403">403</a>	</span>be a waste of memory.
+<span class="l"><a name="404" href="#404">404</a>	</span>
+<span class="l"><a name="405" href="#405">405</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="406" href="#406">406</a>	</span>+ Mapping and use of the circular buffer (ring)
+<span class="l"><a name="407" href="#407">407</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="408" href="#408">408</a>	</span>
+<span class="l"><a name="409" href="#409">409</a>	</span>The mapping of the buffer in the user process is done with the conventional 
+<span class="l"><a name="410" href="#410">410</a>	</span>mmap function. Even the circular buffer is compound of several physically
+<span class="l"><a name="411" href="#411">411</a>	</span>discontiguous blocks of memory, they are contiguous to the user space, hence
+<span class="l"><a name="412" href="#412">412</a>	</span>just one call to mmap is needed:
+<span class="l"><a name="413" href="#413">413</a>	</span>
+<span class="l"><a name="414" href="#414">414</a>	</span>    mmap(0, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+<span class="l"><a name="415" href="#415">415</a>	</span>
+<span class="l"><a name="416" href="#416">416</a>	</span>If tp_frame_size is a divisor of tp_block_size frames will be 
+<span class="l"><a name="417" href="#417">417</a>	</span>contiguously spaced by tp_frame_size bytes. If not, each
+<span class="l"><a name="418" href="#418">418</a>	</span>tp_block_size/tp_frame_size frames there will be a gap between 
+<span class="l"><a name="419" href="#419">419</a>	</span>the frames. This is because a frame cannot be spawn across two
+<span class="l"><a name="420" href="#420">420</a>	</span>blocks. 
+<span class="l"><a name="421" href="#421">421</a>	</span>
+<span class="l"><a name="422" href="#422">422</a>	</span>To use one socket for capture and transmission, the mapping of both the
+<span class="l"><a name="423" href="#423">423</a>	</span>RX and TX buffer ring has to be done with one call to mmap:
+<span class="l"><a name="424" href="#424">424</a>	</span>
+<span class="l"><a name="425" href="#425">425</a>	</span>    ...
+<span class="l"><a name="426" href="#426">426</a>	</span>    setsockopt(fd, SOL_PACKET, PACKET_RX_RING, &amp;foo, sizeof(foo));
+<span class="l"><a name="427" href="#427">427</a>	</span>    setsockopt(fd, SOL_PACKET, PACKET_TX_RING, &amp;bar, sizeof(bar));
+<span class="l"><a name="428" href="#428">428</a>	</span>    ...
+<span class="l"><a name="429" href="#429">429</a>	</span>    rx_ring = mmap(0, size * 2, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+<span class="l"><a name="430" href="#430">430</a>	</span>    tx_ring = rx_ring + size;
+<span class="l"><a name="431" href="#431">431</a>	</span>
+<span class="l"><a name="432" href="#432">432</a>	</span>RX must be the first as the kernel maps the TX ring memory right
+<span class="l"><a name="433" href="#433">433</a>	</span>after the RX one.
+<span class="l"><a name="434" href="#434">434</a>	</span>
+<span class="l"><a name="435" href="#435">435</a>	</span>At the beginning of each frame there is an status field (see 
+<span class="l"><a name="436" href="#436">436</a>	</span>struct tpacket_hdr). If this field is 0 means that the frame is ready
+<span class="l"><a name="437" href="#437">437</a>	</span>to be used for the kernel, If not, there is a frame the user can read 
+<span class="l"><a name="438" href="#438">438</a>	</span>and the following flags apply:
+<span class="l"><a name="439" href="#439">439</a>	</span>
+<span class="l"><a name="440" href="#440">440</a>	</span>+++ Capture process:
+<span class="l"><a name="441" href="#441">441</a>	</span>     from include/linux/if_packet.h
+<span class="l"><a name="442" href="#442">442</a>	</span>
+<span class="l"><a name="443" href="#443">443</a>	</span>     #define TP_STATUS_COPY          (1 &lt;&lt; 1)
+<span class="l"><a name="444" href="#444">444</a>	</span>     #define TP_STATUS_LOSING        (1 &lt;&lt; 2)
+<span class="l"><a name="445" href="#445">445</a>	</span>     #define TP_STATUS_CSUMNOTREADY  (1 &lt;&lt; 3)
+<span class="l"><a name="446" href="#446">446</a>	</span>     #define TP_STATUS_CSUM_VALID    (1 &lt;&lt; 7)
+<span class="l"><a name="447" href="#447">447</a>	</span>
+<span class="l"><a name="448" href="#448">448</a>	</span>TP_STATUS_COPY        : This flag indicates that the frame (and associated
+<span class="l"><a name="449" href="#449">449</a>	</span>                        meta information) has been truncated because it's 
+<span class="l"><a name="450" href="#450">450</a>	</span>                        larger than tp_frame_size. This packet can be 
+<span class="l"><a name="451" href="#451">451</a>	</span>                        read entirely with recvfrom().
+<span class="l"><a name="452" href="#452">452</a>	</span>                        
+<span class="l"><a name="453" href="#453">453</a>	</span>                        In order to make this work it must to be
+<span class="l"><a name="454" href="#454">454</a>	</span>                        enabled previously with setsockopt() and 
+<span class="l"><a name="455" href="#455">455</a>	</span>                        the PACKET_COPY_THRESH option. 
+<span class="l"><a name="456" href="#456">456</a>	</span>
+<span class="l"><a name="457" href="#457">457</a>	</span>                        The number of frames that can be buffered to
+<span class="l"><a name="458" href="#458">458</a>	</span>                        be read with recvfrom is limited like a normal socket.
+<span class="l"><a name="459" href="#459">459</a>	</span>                        See the SO_RCVBUF option in the socket (7) man page.
+<span class="l"><a name="460" href="#460">460</a>	</span>
+<span class="l"><a name="461" href="#461">461</a>	</span>TP_STATUS_LOSING      : indicates there were packet drops from last time 
+<span class="l"><a name="462" href="#462">462</a>	</span>                        statistics where checked with getsockopt() and
+<span class="l"><a name="463" href="#463">463</a>	</span>                        the PACKET_STATISTICS option.
+<span class="l"><a name="464" href="#464">464</a>	</span>
+<span class="l"><a name="465" href="#465">465</a>	</span>TP_STATUS_CSUMNOTREADY: currently it's used for outgoing IP packets which 
+<span class="l"><a name="466" href="#466">466</a>	</span>                        its checksum will be done in hardware. So while
+<span class="l"><a name="467" href="#467">467</a>	</span>                        reading the packet we should not try to check the 
+<span class="l"><a name="468" href="#468">468</a>	</span>                        checksum. 
+<span class="l"><a name="469" href="#469">469</a>	</span>
+<span class="l"><a name="470" href="#470">470</a>	</span>TP_STATUS_CSUM_VALID  : This flag indicates that at least the transport
+<span class="l"><a name="471" href="#471">471</a>	</span>                        header checksum of the packet has been already
+<span class="l"><a name="472" href="#472">472</a>	</span>                        validated on the kernel side. If the flag is not set
+<span class="l"><a name="473" href="#473">473</a>	</span>                        then we are free to check the checksum by ourselves
+<span class="l"><a name="474" href="#474">474</a>	</span>                        provided that TP_STATUS_CSUMNOTREADY is also not set.
+<span class="l"><a name="475" href="#475">475</a>	</span>
+<span class="l"><a name="476" href="#476">476</a>	</span>for convenience there are also the following defines:
+<span class="l"><a name="477" href="#477">477</a>	</span>
+<span class="l"><a name="478" href="#478">478</a>	</span>     #define TP_STATUS_KERNEL        0
+<span class="l"><a name="479" href="#479">479</a>	</span>     #define TP_STATUS_USER          1
+<span class="l"><a name="480" href="#480">480</a>	</span>
+<span class="l"><a name="481" href="#481">481</a>	</span>The kernel initializes all frames to TP_STATUS_KERNEL, when the kernel
+<span class="l"><a name="482" href="#482">482</a>	</span>receives a packet it puts in the buffer and updates the status with
+<span class="l"><a name="483" href="#483">483</a>	</span>at least the TP_STATUS_USER flag. Then the user can read the packet,
+<span class="l"><a name="484" href="#484">484</a>	</span>once the packet is read the user must zero the status field, so the kernel 
+<span class="l"><a name="485" href="#485">485</a>	</span>can use again that frame buffer.
+<span class="l"><a name="486" href="#486">486</a>	</span>
+<span class="l"><a name="487" href="#487">487</a>	</span>The user can use poll (any other variant should apply too) to check if new
+<span class="l"><a name="488" href="#488">488</a>	</span>packets are in the ring:
+<span class="l"><a name="489" href="#489">489</a>	</span>
+<span class="l"><a name="490" href="#490">490</a>	</span>    struct pollfd pfd;
+<span class="l"><a name="491" href="#491">491</a>	</span>
+<span class="l"><a name="492" href="#492">492</a>	</span>    pfd.fd = fd;
+<span class="l"><a name="493" href="#493">493</a>	</span>    pfd.revents = 0;
+<span class="l"><a name="494" href="#494">494</a>	</span>    pfd.events = POLLIN|POLLRDNORM|POLLERR;
+<span class="l"><a name="495" href="#495">495</a>	</span>
+<span class="l"><a name="496" href="#496">496</a>	</span>    if (status == TP_STATUS_KERNEL)
+<span class="l"><a name="497" href="#497">497</a>	</span>        retval = poll(&amp;pfd, 1, timeout);
+<span class="l"><a name="498" href="#498">498</a>	</span>
+<span class="l"><a name="499" href="#499">499</a>	</span>It doesn't incur in a race condition to first check the status value and 
+<span class="l"><a name="500" href="#500">500</a>	</span>then poll for frames.
+<span class="l"><a name="501" href="#501">501</a>	</span>
+<span class="l"><a name="502" href="#502">502</a>	</span>++ Transmission process
+<span class="l"><a name="503" href="#503">503</a>	</span>Those defines are also used for transmission:
+<span class="l"><a name="504" href="#504">504</a>	</span>
+<span class="l"><a name="505" href="#505">505</a>	</span>     #define TP_STATUS_AVAILABLE        0 // Frame is available
+<span class="l"><a name="506" href="#506">506</a>	</span>     #define TP_STATUS_SEND_REQUEST     1 // Frame will be sent on next send()
+<span class="l"><a name="507" href="#507">507</a>	</span>     #define TP_STATUS_SENDING          2 // Frame is currently in transmission
+<span class="l"><a name="508" href="#508">508</a>	</span>     #define TP_STATUS_WRONG_FORMAT     4 // Frame format is not correct
+<span class="l"><a name="509" href="#509">509</a>	</span>
+<span class="l"><a name="510" href="#510">510</a>	</span>First, the kernel initializes all frames to TP_STATUS_AVAILABLE. To send a
+<span class="l"><a name="511" href="#511">511</a>	</span>packet, the user fills a data buffer of an available frame, sets tp_len to
+<span class="l"><a name="512" href="#512">512</a>	</span>current data buffer size and sets its status field to TP_STATUS_SEND_REQUEST.
+<span class="l"><a name="513" href="#513">513</a>	</span>This can be done on multiple frames. Once the user is ready to transmit, it
+<span class="l"><a name="514" href="#514">514</a>	</span>calls send(). Then all buffers with status equal to TP_STATUS_SEND_REQUEST are
+<span class="l"><a name="515" href="#515">515</a>	</span>forwarded to the network device. The kernel updates each status of sent
+<span class="l"><a name="516" href="#516">516</a>	</span>frames with TP_STATUS_SENDING until the end of transfer.
+<span class="l"><a name="517" href="#517">517</a>	</span>At the end of each transfer, buffer status returns to TP_STATUS_AVAILABLE.
+<span class="l"><a name="518" href="#518">518</a>	</span>
+<span class="l"><a name="519" href="#519">519</a>	</span>    header-&gt;tp_len = in_i_size;
+<span class="l"><a name="520" href="#520">520</a>	</span>    header-&gt;tp_status = TP_STATUS_SEND_REQUEST;
+<span class="l"><a name="521" href="#521">521</a>	</span>    retval = send(this-&gt;socket, NULL, 0, 0);
+<span class="l"><a name="522" href="#522">522</a>	</span>
+<span class="l"><a name="523" href="#523">523</a>	</span>The user can also use poll() to check if a buffer is available:
+<span class="l"><a name="524" href="#524">524</a>	</span>(status == TP_STATUS_SENDING)
+<span class="l"><a name="525" href="#525">525</a>	</span>
+<span class="l"><a name="526" href="#526">526</a>	</span>    struct pollfd pfd;
+<span class="l"><a name="527" href="#527">527</a>	</span>    pfd.fd = fd;
+<span class="l"><a name="528" href="#528">528</a>	</span>    pfd.revents = 0;
+<span class="l"><a name="529" href="#529">529</a>	</span>    pfd.events = POLLOUT;
+<span class="l"><a name="530" href="#530">530</a>	</span>    retval = poll(&amp;pfd, 1, timeout);
+<span class="l"><a name="531" href="#531">531</a>	</span>
+<span class="l"><a name="532" href="#532">532</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="533" href="#533">533</a>	</span>+ What TPACKET versions are available and when to use them?
+<span class="l"><a name="534" href="#534">534</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="535" href="#535">535</a>	</span>
+<span class="l"><a name="536" href="#536">536</a>	</span> int val = tpacket_version;
+<span class="l"><a name="537" href="#537">537</a>	</span> setsockopt(fd, SOL_PACKET, PACKET_VERSION, &amp;val, sizeof(val));
+<span class="l"><a name="538" href="#538">538</a>	</span> getsockopt(fd, SOL_PACKET, PACKET_VERSION, &amp;val, sizeof(val));
+<span class="l"><a name="539" href="#539">539</a>	</span>
+<span class="l"><a name="540" href="#540">540</a>	</span>where 'tpacket_version' can be TPACKET_V1 (default), TPACKET_V2, TPACKET_V3.
+<span class="l"><a name="541" href="#541">541</a>	</span>
+<span class="l"><a name="542" href="#542">542</a>	</span>TPACKET_V1:
+<span class="l"><a name="543" href="#543">543</a>	</span>	- Default if not otherwise specified by setsockopt(2)
+<span class="l"><a name="544" href="#544">544</a>	</span>	- RX_RING, TX_RING available
+<span class="l"><a name="545" href="#545">545</a>	</span>
+<span class="l"><a name="546" href="#546">546</a>	</span>TPACKET_V1 --&gt; TPACKET_V2:
+<span class="l"><a name="547" href="#547">547</a>	</span>	- Made 64 bit clean due to unsigned long usage in TPACKET_V1
+<span class="l"><a name="548" href="#548">548</a>	</span>	  structures, thus this also works on 64 bit kernel with 32 bit
+<span class="l"><a name="549" href="#549">549</a>	</span>	  userspace and the like
+<span class="l"><a name="550" href="#550">550</a>	</span>	- Timestamp resolution in nanoseconds instead of microseconds
+<span class="l"><a name="551" href="#551">551</a>	</span>	- RX_RING, TX_RING available
+<span class="l"><a name="552" href="#552">552</a>	</span>	- VLAN metadata information available for packets
+<span class="l"><a name="553" href="#553">553</a>	</span>	  (TP_STATUS_VLAN_VALID, TP_STATUS_VLAN_TPID_VALID),
+<span class="l"><a name="554" href="#554">554</a>	</span>	  in the tpacket2_hdr structure:
+<span class="l"><a name="555" href="#555">555</a>	</span>		- TP_STATUS_VLAN_VALID bit being set into the tp_status field indicates
+<span class="l"><a name="556" href="#556">556</a>	</span>		  that the tp_vlan_tci field has valid VLAN TCI value
+<span class="l"><a name="557" href="#557">557</a>	</span>		- TP_STATUS_VLAN_TPID_VALID bit being set into the tp_status field
+<span class="l"><a name="558" href="#558">558</a>	</span>		  indicates that the tp_vlan_tpid field has valid VLAN TPID value
+<span class="l"><a name="559" href="#559">559</a>	</span>	- How to switch to TPACKET_V2:
+<span class="l"><a name="560" href="#560">560</a>	</span>		1. Replace struct tpacket_hdr by struct tpacket2_hdr
+<span class="l"><a name="561" href="#561">561</a>	</span>		2. Query header len and save
+<span class="l"><a name="562" href="#562">562</a>	</span>		3. Set protocol version to 2, set up ring as usual
+<span class="l"><a name="563" href="#563">563</a>	</span>		4. For getting the sockaddr_ll,
+<span class="l"><a name="564" href="#564">564</a>	</span>		   use (void *)hdr + TPACKET_ALIGN(hdrlen) instead of
+<span class="l"><a name="565" href="#565">565</a>	</span>		   (void *)hdr + TPACKET_ALIGN(sizeof(struct tpacket_hdr))
+<span class="l"><a name="566" href="#566">566</a>	</span>
+<span class="l"><a name="567" href="#567">567</a>	</span>TPACKET_V2 --&gt; TPACKET_V3:
+<span class="l"><a name="568" href="#568">568</a>	</span>	- Flexible buffer implementation:
+<span class="l"><a name="569" href="#569">569</a>	</span>		1. Blocks can be configured with non-static frame-size
+<span class="l"><a name="570" href="#570">570</a>	</span>		2. Read/poll is at a block-level (as opposed to packet-level)
+<span class="l"><a name="571" href="#571">571</a>	</span>		3. Added poll timeout to avoid indefinite user-space wait
+<span class="l"><a name="572" href="#572">572</a>	</span>		   on idle links
+<span class="l"><a name="573" href="#573">573</a>	</span>		4. Added user-configurable knobs:
+<span class="l"><a name="574" href="#574">574</a>	</span>			4.1 block::timeout
+<span class="l"><a name="575" href="#575">575</a>	</span>			4.2 tpkt_hdr::sk_rxhash
+<span class="l"><a name="576" href="#576">576</a>	</span>	- RX Hash data available in user space
+<span class="l"><a name="577" href="#577">577</a>	</span>	- Currently only RX_RING available
+<span class="l"><a name="578" href="#578">578</a>	</span>
+<span class="l"><a name="579" href="#579">579</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="580" href="#580">580</a>	</span>+ AF_PACKET fanout mode
+<span class="l"><a name="581" href="#581">581</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="582" href="#582">582</a>	</span>
+<span class="l"><a name="583" href="#583">583</a>	</span>In the AF_PACKET fanout mode, packet reception can be load balanced among
+<span class="l"><a name="584" href="#584">584</a>	</span>processes. This also works in combination with mmap(2) on packet sockets.
+<span class="l"><a name="585" href="#585">585</a>	</span>
+<span class="l"><a name="586" href="#586">586</a>	</span>Currently implemented fanout policies are:
+<span class="l"><a name="587" href="#587">587</a>	</span>
+<span class="l"><a name="588" href="#588">588</a>	</span>  - PACKET_FANOUT_HASH: schedule to socket by skb's packet hash
+<span class="l"><a name="589" href="#589">589</a>	</span>  - PACKET_FANOUT_LB: schedule to socket by round-robin
+<span class="l"><a name="590" href="#590">590</a>	</span>  - PACKET_FANOUT_CPU: schedule to socket by CPU packet arrives on
+<span class="l"><a name="591" href="#591">591</a>	</span>  - PACKET_FANOUT_RND: schedule to socket by random selection
+<span class="l"><a name="592" href="#592">592</a>	</span>  - PACKET_FANOUT_ROLLOVER: if one socket is full, rollover to another
+<span class="l"><a name="593" href="#593">593</a>	</span>  - PACKET_FANOUT_QM: schedule to socket by skbs recorded queue_mapping
+<span class="l"><a name="594" href="#594">594</a>	</span>
+<span class="l"><a name="595" href="#595">595</a>	</span>Minimal example code by David S. Miller (try things like "./test eth0 hash",
+<span class="l"><a name="596" href="#596">596</a>	</span>"./test eth0 lb", etc.):
+<span class="l"><a name="597" href="#597">597</a>	</span>
+<span class="l"><a name="598" href="#598">598</a>	</span>#include &lt;stddef.h&gt;
+<span class="l"><a name="599" href="#599">599</a>	</span>#include &lt;stdlib.h&gt;
+<span class="l"><a name="600" href="#600">600</a>	</span>#include &lt;stdio.h&gt;
+<span class="l"><a name="601" href="#601">601</a>	</span>#include &lt;string.h&gt;
+<span class="l"><a name="602" href="#602">602</a>	</span>
+<span class="l"><a name="603" href="#603">603</a>	</span>#include &lt;sys/types.h&gt;
+<span class="l"><a name="604" href="#604">604</a>	</span>#include &lt;sys/wait.h&gt;
+<span class="l"><a name="605" href="#605">605</a>	</span>#include &lt;sys/socket.h&gt;
+<span class="l"><a name="606" href="#606">606</a>	</span>#include &lt;sys/ioctl.h&gt;
+<span class="l"><a name="607" href="#607">607</a>	</span>
+<span class="l"><a name="608" href="#608">608</a>	</span>#include &lt;unistd.h&gt;
+<span class="l"><a name="609" href="#609">609</a>	</span>
+<span class="l"><a name="610" href="#610">610</a>	</span>#include &lt;linux/if_ether.h&gt;
+<span class="l"><a name="611" href="#611">611</a>	</span>#include &lt;linux/if_packet.h&gt;
+<span class="l"><a name="612" href="#612">612</a>	</span>
+<span class="l"><a name="613" href="#613">613</a>	</span>#include &lt;net/if.h&gt;
+<span class="l"><a name="614" href="#614">614</a>	</span>
+<span class="l"><a name="615" href="#615">615</a>	</span>static const char *device_name;
+<span class="l"><a name="616" href="#616">616</a>	</span>static int fanout_type;
+<span class="l"><a name="617" href="#617">617</a>	</span>static int fanout_id;
+<span class="l"><a name="618" href="#618">618</a>	</span>
+<span class="l"><a name="619" href="#619">619</a>	</span>#ifndef PACKET_FANOUT
+<span class="l"><a name="620" href="#620">620</a>	</span># define PACKET_FANOUT			18
+<span class="l"><a name="621" href="#621">621</a>	</span># define PACKET_FANOUT_HASH		0
+<span class="l"><a name="622" href="#622">622</a>	</span># define PACKET_FANOUT_LB		1
+<span class="l"><a name="623" href="#623">623</a>	</span>#endif
+<span class="l"><a name="624" href="#624">624</a>	</span>
+<span class="l"><a name="625" href="#625">625</a>	</span>static int setup_socket(void)
+<span class="l"><a name="626" href="#626">626</a>	</span>{
+<span class="l"><a name="627" href="#627">627</a>	</span>	int err, fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+<span class="l"><a name="628" href="#628">628</a>	</span>	struct sockaddr_ll ll;
+<span class="l"><a name="629" href="#629">629</a>	</span>	struct ifreq ifr;
+<span class="l"><a name="630" href="#630">630</a>	</span>	int fanout_arg;
+<span class="l"><a name="631" href="#631">631</a>	</span>
+<span class="l"><a name="632" href="#632">632</a>	</span>	if (fd &lt; 0) {
+<span class="l"><a name="633" href="#633">633</a>	</span>		perror("socket");
+<span class="l"><a name="634" href="#634">634</a>	</span>		return EXIT_FAILURE;
+<span class="l"><a name="635" href="#635">635</a>	</span>	}
+<span class="l"><a name="636" href="#636">636</a>	</span>
+<span class="l"><a name="637" href="#637">637</a>	</span>	memset(&amp;ifr, 0, sizeof(ifr));
+<span class="l"><a name="638" href="#638">638</a>	</span>	strcpy(ifr.ifr_name, device_name);
+<span class="l"><a name="639" href="#639">639</a>	</span>	err = ioctl(fd, SIOCGIFINDEX, &amp;ifr);
+<span class="l"><a name="640" href="#640">640</a>	</span>	if (err &lt; 0) {
+<span class="l"><a name="641" href="#641">641</a>	</span>		perror("SIOCGIFINDEX");
+<span class="l"><a name="642" href="#642">642</a>	</span>		return EXIT_FAILURE;
+<span class="l"><a name="643" href="#643">643</a>	</span>	}
+<span class="l"><a name="644" href="#644">644</a>	</span>
+<span class="l"><a name="645" href="#645">645</a>	</span>	memset(&amp;ll, 0, sizeof(ll));
+<span class="l"><a name="646" href="#646">646</a>	</span>	ll.sll_family = AF_PACKET;
+<span class="l"><a name="647" href="#647">647</a>	</span>	ll.sll_ifindex = ifr.ifr_ifindex;
+<span class="l"><a name="648" href="#648">648</a>	</span>	err = bind(fd, (struct sockaddr *) &amp;ll, sizeof(ll));
+<span class="l"><a name="649" href="#649">649</a>	</span>	if (err &lt; 0) {
+<span class="l"><a name="650" href="#650">650</a>	</span>		perror("bind");
+<span class="l"><a name="651" href="#651">651</a>	</span>		return EXIT_FAILURE;
+<span class="l"><a name="652" href="#652">652</a>	</span>	}
+<span class="l"><a name="653" href="#653">653</a>	</span>
+<span class="l"><a name="654" href="#654">654</a>	</span>	fanout_arg = (fanout_id | (fanout_type &lt;&lt; 16));
+<span class="l"><a name="655" href="#655">655</a>	</span>	err = setsockopt(fd, SOL_PACKET, PACKET_FANOUT,
+<span class="l"><a name="656" href="#656">656</a>	</span>			 &amp;fanout_arg, sizeof(fanout_arg));
+<span class="l"><a name="657" href="#657">657</a>	</span>	if (err) {
+<span class="l"><a name="658" href="#658">658</a>	</span>		perror("setsockopt");
+<span class="l"><a name="659" href="#659">659</a>	</span>		return EXIT_FAILURE;
+<span class="l"><a name="660" href="#660">660</a>	</span>	}
+<span class="l"><a name="661" href="#661">661</a>	</span>
+<span class="l"><a name="662" href="#662">662</a>	</span>	return fd;
+<span class="l"><a name="663" href="#663">663</a>	</span>}
+<span class="l"><a name="664" href="#664">664</a>	</span>
+<span class="l"><a name="665" href="#665">665</a>	</span>static void fanout_thread(void)
+<span class="l"><a name="666" href="#666">666</a>	</span>{
+<span class="l"><a name="667" href="#667">667</a>	</span>	int fd = setup_socket();
+<span class="l"><a name="668" href="#668">668</a>	</span>	int limit = 10000;
+<span class="l"><a name="669" href="#669">669</a>	</span>
+<span class="l"><a name="670" href="#670">670</a>	</span>	if (fd &lt; 0)
+<span class="l"><a name="671" href="#671">671</a>	</span>		exit(fd);
+<span class="l"><a name="672" href="#672">672</a>	</span>
+<span class="l"><a name="673" href="#673">673</a>	</span>	while (limit-- &gt; 0) {
+<span class="l"><a name="674" href="#674">674</a>	</span>		char buf[1600];
+<span class="l"><a name="675" href="#675">675</a>	</span>		int err;
+<span class="l"><a name="676" href="#676">676</a>	</span>
+<span class="l"><a name="677" href="#677">677</a>	</span>		err = read(fd, buf, sizeof(buf));
+<span class="l"><a name="678" href="#678">678</a>	</span>		if (err &lt; 0) {
+<span class="l"><a name="679" href="#679">679</a>	</span>			perror("read");
+<span class="l"><a name="680" href="#680">680</a>	</span>			exit(EXIT_FAILURE);
+<span class="l"><a name="681" href="#681">681</a>	</span>		}
+<span class="l"><a name="682" href="#682">682</a>	</span>		if ((limit % 10) == 0)
+<span class="l"><a name="683" href="#683">683</a>	</span>			fprintf(stdout, "(%d) \n", getpid());
+<span class="l"><a name="684" href="#684">684</a>	</span>	}
+<span class="l"><a name="685" href="#685">685</a>	</span>
+<span class="l"><a name="686" href="#686">686</a>	</span>	fprintf(stdout, "%d: Received 10000 packets\n", getpid());
+<span class="l"><a name="687" href="#687">687</a>	</span>
+<span class="l"><a name="688" href="#688">688</a>	</span>	close(fd);
+<span class="l"><a name="689" href="#689">689</a>	</span>	exit(0);
+<span class="l"><a name="690" href="#690">690</a>	</span>}
+<span class="l"><a name="691" href="#691">691</a>	</span>
+<span class="l"><a name="692" href="#692">692</a>	</span>int main(int argc, char **argp)
+<span class="l"><a name="693" href="#693">693</a>	</span>{
+<span class="l"><a name="694" href="#694">694</a>	</span>	int fd, err;
+<span class="l"><a name="695" href="#695">695</a>	</span>	int i;
+<span class="l"><a name="696" href="#696">696</a>	</span>
+<span class="l"><a name="697" href="#697">697</a>	</span>	if (argc != 3) {
+<span class="l"><a name="698" href="#698">698</a>	</span>		fprintf(stderr, "Usage: %s INTERFACE {hash|lb}\n", argp[0]);
+<span class="l"><a name="699" href="#699">699</a>	</span>		return EXIT_FAILURE;
+<span class="l"><a name="700" href="#700">700</a>	</span>	}
+<span class="l"><a name="701" href="#701">701</a>	</span>
+<span class="l"><a name="702" href="#702">702</a>	</span>	if (!strcmp(argp[2], "hash"))
+<span class="l"><a name="703" href="#703">703</a>	</span>		fanout_type = PACKET_FANOUT_HASH;
+<span class="l"><a name="704" href="#704">704</a>	</span>	else if (!strcmp(argp[2], "lb"))
+<span class="l"><a name="705" href="#705">705</a>	</span>		fanout_type = PACKET_FANOUT_LB;
+<span class="l"><a name="706" href="#706">706</a>	</span>	else {
+<span class="l"><a name="707" href="#707">707</a>	</span>		fprintf(stderr, "Unknown fanout type [%s]\n", argp[2]);
+<span class="l"><a name="708" href="#708">708</a>	</span>		exit(EXIT_FAILURE);
+<span class="l"><a name="709" href="#709">709</a>	</span>	}
+<span class="l"><a name="710" href="#710">710</a>	</span>
+<span class="l"><a name="711" href="#711">711</a>	</span>	device_name = argp[1];
+<span class="l"><a name="712" href="#712">712</a>	</span>	fanout_id = getpid() &amp; 0xffff;
+<span class="l"><a name="713" href="#713">713</a>	</span>
+<span class="l"><a name="714" href="#714">714</a>	</span>	for (i = 0; i &lt; 4; i++) {
+<span class="l"><a name="715" href="#715">715</a>	</span>		pid_t pid = fork();
+<span class="l"><a name="716" href="#716">716</a>	</span>
+<span class="l"><a name="717" href="#717">717</a>	</span>		switch (pid) {
+<span class="l"><a name="718" href="#718">718</a>	</span>		case 0:
+<span class="l"><a name="719" href="#719">719</a>	</span>			fanout_thread();
+<span class="l"><a name="720" href="#720">720</a>	</span>
+<span class="l"><a name="721" href="#721">721</a>	</span>		case -1:
+<span class="l"><a name="722" href="#722">722</a>	</span>			perror("fork");
+<span class="l"><a name="723" href="#723">723</a>	</span>			exit(EXIT_FAILURE);
+<span class="l"><a name="724" href="#724">724</a>	</span>		}
+<span class="l"><a name="725" href="#725">725</a>	</span>	}
+<span class="l"><a name="726" href="#726">726</a>	</span>
+<span class="l"><a name="727" href="#727">727</a>	</span>	for (i = 0; i &lt; 4; i++) {
+<span class="l"><a name="728" href="#728">728</a>	</span>		int status;
+<span class="l"><a name="729" href="#729">729</a>	</span>
+<span class="l"><a name="730" href="#730">730</a>	</span>		wait(&amp;status);
+<span class="l"><a name="731" href="#731">731</a>	</span>	}
+<span class="l"><a name="732" href="#732">732</a>	</span>
+<span class="l"><a name="733" href="#733">733</a>	</span>	return 0;
+<span class="l"><a name="734" href="#734">734</a>	</span>}
+<span class="l"><a name="735" href="#735">735</a>	</span>
+<span class="l"><a name="736" href="#736">736</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="737" href="#737">737</a>	</span>+ AF_PACKET TPACKET_V3 example
+<span class="l"><a name="738" href="#738">738</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="739" href="#739">739</a>	</span>
+<span class="l"><a name="740" href="#740">740</a>	</span>AF_PACKET's TPACKET_V3 ring buffer can be configured to use non-static frame
+<span class="l"><a name="741" href="#741">741</a>	</span>sizes by doing it's own memory management. It is based on blocks where polling
+<span class="l"><a name="742" href="#742">742</a>	</span>works on a per block basis instead of per ring as in TPACKET_V2 and predecessor.
+<span class="l"><a name="743" href="#743">743</a>	</span>
+<span class="l"><a name="744" href="#744">744</a>	</span>It is said that TPACKET_V3 brings the following benefits:
+<span class="l"><a name="745" href="#745">745</a>	</span> *) ~15 - 20% reduction in CPU-usage
+<span class="l"><a name="746" href="#746">746</a>	</span> *) ~20% increase in packet capture rate
+<span class="l"><a name="747" href="#747">747</a>	</span> *) ~2x increase in packet density
+<span class="l"><a name="748" href="#748">748</a>	</span> *) Port aggregation analysis
+<span class="l"><a name="749" href="#749">749</a>	</span> *) Non static frame size to capture entire packet payload
+<span class="l"><a name="750" href="#750">750</a>	</span>
+<span class="l"><a name="751" href="#751">751</a>	</span>So it seems to be a good candidate to be used with packet fanout.
+<span class="l"><a name="752" href="#752">752</a>	</span>
+<span class="l"><a name="753" href="#753">753</a>	</span>Minimal example code by Daniel Borkmann based on Chetan Loke's lolpcap (compile
+<span class="l"><a name="754" href="#754">754</a>	</span>it with gcc -Wall -O2 blob.c, and try things like "./a.out eth0", etc.):
+<span class="l"><a name="755" href="#755">755</a>	</span>
+<span class="l"><a name="756" href="#756">756</a>	</span>/* Written from scratch, but kernel-to-user space API usage
+<span class="l"><a name="757" href="#757">757</a>	</span> * dissected from lolpcap:
+<span class="l"><a name="758" href="#758">758</a>	</span> *  Copyright 2011, Chetan Loke &lt;loke.chetan@gmail.com&gt;
+<span class="l"><a name="759" href="#759">759</a>	</span> *  License: GPL, version 2.0
+<span class="l"><a name="760" href="#760">760</a>	</span> */
+<span class="l"><a name="761" href="#761">761</a>	</span>
+<span class="l"><a name="762" href="#762">762</a>	</span>#include &lt;stdio.h&gt;
+<span class="l"><a name="763" href="#763">763</a>	</span>#include &lt;stdlib.h&gt;
+<span class="l"><a name="764" href="#764">764</a>	</span>#include &lt;stdint.h&gt;
+<span class="l"><a name="765" href="#765">765</a>	</span>#include &lt;string.h&gt;
+<span class="l"><a name="766" href="#766">766</a>	</span>#include &lt;assert.h&gt;
+<span class="l"><a name="767" href="#767">767</a>	</span>#include &lt;net/if.h&gt;
+<span class="l"><a name="768" href="#768">768</a>	</span>#include &lt;arpa/inet.h&gt;
+<span class="l"><a name="769" href="#769">769</a>	</span>#include &lt;netdb.h&gt;
+<span class="l"><a name="770" href="#770">770</a>	</span>#include &lt;poll.h&gt;
+<span class="l"><a name="771" href="#771">771</a>	</span>#include &lt;unistd.h&gt;
+<span class="l"><a name="772" href="#772">772</a>	</span>#include &lt;signal.h&gt;
+<span class="l"><a name="773" href="#773">773</a>	</span>#include &lt;inttypes.h&gt;
+<span class="l"><a name="774" href="#774">774</a>	</span>#include &lt;sys/socket.h&gt;
+<span class="l"><a name="775" href="#775">775</a>	</span>#include &lt;sys/mman.h&gt;
+<span class="l"><a name="776" href="#776">776</a>	</span>#include &lt;linux/if_packet.h&gt;
+<span class="l"><a name="777" href="#777">777</a>	</span>#include &lt;linux/if_ether.h&gt;
+<span class="l"><a name="778" href="#778">778</a>	</span>#include &lt;linux/ip.h&gt;
+<span class="l"><a name="779" href="#779">779</a>	</span>
+<span class="l"><a name="780" href="#780">780</a>	</span>#ifndef likely
+<span class="l"><a name="781" href="#781">781</a>	</span># define likely(x)		__builtin_expect(!!(x), 1)
+<span class="l"><a name="782" href="#782">782</a>	</span>#endif
+<span class="l"><a name="783" href="#783">783</a>	</span>#ifndef unlikely
+<span class="l"><a name="784" href="#784">784</a>	</span># define unlikely(x)		__builtin_expect(!!(x), 0)
+<span class="l"><a name="785" href="#785">785</a>	</span>#endif
+<span class="l"><a name="786" href="#786">786</a>	</span>
+<span class="l"><a name="787" href="#787">787</a>	</span>struct block_desc {
+<span class="l"><a name="788" href="#788">788</a>	</span>	uint32_t version;
+<span class="l"><a name="789" href="#789">789</a>	</span>	uint32_t offset_to_priv;
+<span class="l"><a name="790" href="#790">790</a>	</span>	struct tpacket_hdr_v1 h1;
+<span class="l"><a name="791" href="#791">791</a>	</span>};
+<span class="l"><a name="792" href="#792">792</a>	</span>
+<span class="l"><a name="793" href="#793">793</a>	</span>struct ring {
+<span class="l"><a name="794" href="#794">794</a>	</span>	struct iovec *rd;
+<span class="l"><a name="795" href="#795">795</a>	</span>	uint8_t *map;
+<span class="l"><a name="796" href="#796">796</a>	</span>	struct tpacket_req3 req;
+<span class="l"><a name="797" href="#797">797</a>	</span>};
+<span class="l"><a name="798" href="#798">798</a>	</span>
+<span class="l"><a name="799" href="#799">799</a>	</span>static unsigned long packets_total = 0, bytes_total = 0;
+<span class="l"><a name="800" href="#800">800</a>	</span>static sig_atomic_t sigint = 0;
+<span class="l"><a name="801" href="#801">801</a>	</span>
+<span class="l"><a name="802" href="#802">802</a>	</span>static void sighandler(int num)
+<span class="l"><a name="803" href="#803">803</a>	</span>{
+<span class="l"><a name="804" href="#804">804</a>	</span>	sigint = 1;
+<span class="l"><a name="805" href="#805">805</a>	</span>}
+<span class="l"><a name="806" href="#806">806</a>	</span>
+<span class="l"><a name="807" href="#807">807</a>	</span>static int setup_socket(struct ring *ring, char *netdev)
+<span class="l"><a name="808" href="#808">808</a>	</span>{
+<span class="l"><a name="809" href="#809">809</a>	</span>	int err, i, fd, v = TPACKET_V3;
+<span class="l"><a name="810" href="#810">810</a>	</span>	struct sockaddr_ll ll;
+<span class="l"><a name="811" href="#811">811</a>	</span>	unsigned int blocksiz = 1 &lt;&lt; 22, framesiz = 1 &lt;&lt; 11;
+<span class="l"><a name="812" href="#812">812</a>	</span>	unsigned int blocknum = 64;
+<span class="l"><a name="813" href="#813">813</a>	</span>
+<span class="l"><a name="814" href="#814">814</a>	</span>	fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+<span class="l"><a name="815" href="#815">815</a>	</span>	if (fd &lt; 0) {
+<span class="l"><a name="816" href="#816">816</a>	</span>		perror("socket");
+<span class="l"><a name="817" href="#817">817</a>	</span>		exit(1);
+<span class="l"><a name="818" href="#818">818</a>	</span>	}
+<span class="l"><a name="819" href="#819">819</a>	</span>
+<span class="l"><a name="820" href="#820">820</a>	</span>	err = setsockopt(fd, SOL_PACKET, PACKET_VERSION, &amp;v, sizeof(v));
+<span class="l"><a name="821" href="#821">821</a>	</span>	if (err &lt; 0) {
+<span class="l"><a name="822" href="#822">822</a>	</span>		perror("setsockopt");
+<span class="l"><a name="823" href="#823">823</a>	</span>		exit(1);
+<span class="l"><a name="824" href="#824">824</a>	</span>	}
+<span class="l"><a name="825" href="#825">825</a>	</span>
+<span class="l"><a name="826" href="#826">826</a>	</span>	memset(&amp;ring-&gt;req, 0, sizeof(ring-&gt;req));
+<span class="l"><a name="827" href="#827">827</a>	</span>	ring-&gt;req.tp_block_size = blocksiz;
+<span class="l"><a name="828" href="#828">828</a>	</span>	ring-&gt;req.tp_frame_size = framesiz;
+<span class="l"><a name="829" href="#829">829</a>	</span>	ring-&gt;req.tp_block_nr = blocknum;
+<span class="l"><a name="830" href="#830">830</a>	</span>	ring-&gt;req.tp_frame_nr = (blocksiz * blocknum) / framesiz;
+<span class="l"><a name="831" href="#831">831</a>	</span>	ring-&gt;req.tp_retire_blk_tov = 60;
+<span class="l"><a name="832" href="#832">832</a>	</span>	ring-&gt;req.tp_feature_req_word = TP_FT_REQ_FILL_RXHASH;
+<span class="l"><a name="833" href="#833">833</a>	</span>
+<span class="l"><a name="834" href="#834">834</a>	</span>	err = setsockopt(fd, SOL_PACKET, PACKET_RX_RING, &amp;ring-&gt;req,
+<span class="l"><a name="835" href="#835">835</a>	</span>			 sizeof(ring-&gt;req));
+<span class="l"><a name="836" href="#836">836</a>	</span>	if (err &lt; 0) {
+<span class="l"><a name="837" href="#837">837</a>	</span>		perror("setsockopt");
+<span class="l"><a name="838" href="#838">838</a>	</span>		exit(1);
+<span class="l"><a name="839" href="#839">839</a>	</span>	}
+<span class="l"><a name="840" href="#840">840</a>	</span>
+<span class="l"><a name="841" href="#841">841</a>	</span>	ring-&gt;map = mmap(NULL, ring-&gt;req.tp_block_size * ring-&gt;req.tp_block_nr,
+<span class="l"><a name="842" href="#842">842</a>	</span>			 PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
+<span class="l"><a name="843" href="#843">843</a>	</span>	if (ring-&gt;map == MAP_FAILED) {
+<span class="l"><a name="844" href="#844">844</a>	</span>		perror("mmap");
+<span class="l"><a name="845" href="#845">845</a>	</span>		exit(1);
+<span class="l"><a name="846" href="#846">846</a>	</span>	}
+<span class="l"><a name="847" href="#847">847</a>	</span>
+<span class="l"><a name="848" href="#848">848</a>	</span>	ring-&gt;rd = malloc(ring-&gt;req.tp_block_nr * sizeof(*ring-&gt;rd));
+<span class="l"><a name="849" href="#849">849</a>	</span>	assert(ring-&gt;rd);
+<span class="l"><a name="850" href="#850">850</a>	</span>	for (i = 0; i &lt; ring-&gt;req.tp_block_nr; ++i) {
+<span class="l"><a name="851" href="#851">851</a>	</span>		ring-&gt;rd[i].iov_base = ring-&gt;map + (i * ring-&gt;req.tp_block_size);
+<span class="l"><a name="852" href="#852">852</a>	</span>		ring-&gt;rd[i].iov_len = ring-&gt;req.tp_block_size;
+<span class="l"><a name="853" href="#853">853</a>	</span>	}
+<span class="l"><a name="854" href="#854">854</a>	</span>
+<span class="l"><a name="855" href="#855">855</a>	</span>	memset(&amp;ll, 0, sizeof(ll));
+<span class="l"><a name="856" href="#856">856</a>	</span>	ll.sll_family = PF_PACKET;
+<span class="l"><a name="857" href="#857">857</a>	</span>	ll.sll_protocol = htons(ETH_P_ALL);
+<span class="l"><a name="858" href="#858">858</a>	</span>	ll.sll_ifindex = if_nametoindex(netdev);
+<span class="l"><a name="859" href="#859">859</a>	</span>	ll.sll_hatype = 0;
+<span class="l"><a name="860" href="#860">860</a>	</span>	ll.sll_pkttype = 0;
+<span class="l"><a name="861" href="#861">861</a>	</span>	ll.sll_halen = 0;
+<span class="l"><a name="862" href="#862">862</a>	</span>
+<span class="l"><a name="863" href="#863">863</a>	</span>	err = bind(fd, (struct sockaddr *) &amp;ll, sizeof(ll));
+<span class="l"><a name="864" href="#864">864</a>	</span>	if (err &lt; 0) {
+<span class="l"><a name="865" href="#865">865</a>	</span>		perror("bind");
+<span class="l"><a name="866" href="#866">866</a>	</span>		exit(1);
+<span class="l"><a name="867" href="#867">867</a>	</span>	}
+<span class="l"><a name="868" href="#868">868</a>	</span>
+<span class="l"><a name="869" href="#869">869</a>	</span>	return fd;
+<span class="l"><a name="870" href="#870">870</a>	</span>}
+<span class="l"><a name="871" href="#871">871</a>	</span>
+<span class="l"><a name="872" href="#872">872</a>	</span>static void display(struct tpacket3_hdr *ppd)
+<span class="l"><a name="873" href="#873">873</a>	</span>{
+<span class="l"><a name="874" href="#874">874</a>	</span>	struct ethhdr *eth = (struct ethhdr *) ((uint8_t *) ppd + ppd-&gt;tp_mac);
+<span class="l"><a name="875" href="#875">875</a>	</span>	struct iphdr *ip = (struct iphdr *) ((uint8_t *) eth + ETH_HLEN);
+<span class="l"><a name="876" href="#876">876</a>	</span>
+<span class="l"><a name="877" href="#877">877</a>	</span>	if (eth-&gt;h_proto == htons(ETH_P_IP)) {
+<span class="l"><a name="878" href="#878">878</a>	</span>		struct sockaddr_in ss, sd;
+<span class="l"><a name="879" href="#879">879</a>	</span>		char sbuff[NI_MAXHOST], dbuff[NI_MAXHOST];
+<span class="l"><a name="880" href="#880">880</a>	</span>
+<span class="l"><a name="881" href="#881">881</a>	</span>		memset(&amp;ss, 0, sizeof(ss));
+<span class="l"><a name="882" href="#882">882</a>	</span>		ss.sin_family = PF_INET;
+<span class="l"><a name="883" href="#883">883</a>	</span>		ss.sin_addr.s_addr = ip-&gt;saddr;
+<span class="l"><a name="884" href="#884">884</a>	</span>		getnameinfo((struct sockaddr *) &amp;ss, sizeof(ss),
+<span class="l"><a name="885" href="#885">885</a>	</span>			    sbuff, sizeof(sbuff), NULL, 0, NI_NUMERICHOST);
+<span class="l"><a name="886" href="#886">886</a>	</span>
+<span class="l"><a name="887" href="#887">887</a>	</span>		memset(&amp;sd, 0, sizeof(sd));
+<span class="l"><a name="888" href="#888">888</a>	</span>		sd.sin_family = PF_INET;
+<span class="l"><a name="889" href="#889">889</a>	</span>		sd.sin_addr.s_addr = ip-&gt;daddr;
+<span class="l"><a name="890" href="#890">890</a>	</span>		getnameinfo((struct sockaddr *) &amp;sd, sizeof(sd),
+<span class="l"><a name="891" href="#891">891</a>	</span>			    dbuff, sizeof(dbuff), NULL, 0, NI_NUMERICHOST);
+<span class="l"><a name="892" href="#892">892</a>	</span>
+<span class="l"><a name="893" href="#893">893</a>	</span>		printf("%s -&gt; %s, ", sbuff, dbuff);
+<span class="l"><a name="894" href="#894">894</a>	</span>	}
+<span class="l"><a name="895" href="#895">895</a>	</span>
+<span class="l"><a name="896" href="#896">896</a>	</span>	printf("rxhash: 0x%x\n", ppd-&gt;hv1.tp_rxhash);
+<span class="l"><a name="897" href="#897">897</a>	</span>}
+<span class="l"><a name="898" href="#898">898</a>	</span>
+<span class="l"><a name="899" href="#899">899</a>	</span>static void walk_block(struct block_desc *pbd, const int block_num)
+<span class="l"><a name="900" href="#900">900</a>	</span>{
+<span class="l"><a name="901" href="#901">901</a>	</span>	int num_pkts = pbd-&gt;h1.num_pkts, i;
+<span class="l"><a name="902" href="#902">902</a>	</span>	unsigned long bytes = 0;
+<span class="l"><a name="903" href="#903">903</a>	</span>	struct tpacket3_hdr *ppd;
+<span class="l"><a name="904" href="#904">904</a>	</span>
+<span class="l"><a name="905" href="#905">905</a>	</span>	ppd = (struct tpacket3_hdr *) ((uint8_t *) pbd +
+<span class="l"><a name="906" href="#906">906</a>	</span>				       pbd-&gt;h1.offset_to_first_pkt);
+<span class="l"><a name="907" href="#907">907</a>	</span>	for (i = 0; i &lt; num_pkts; ++i) {
+<span class="l"><a name="908" href="#908">908</a>	</span>		bytes += ppd-&gt;tp_snaplen;
+<span class="l"><a name="909" href="#909">909</a>	</span>		display(ppd);
+<span class="l"><a name="910" href="#910">910</a>	</span>
+<span class="l"><a name="911" href="#911">911</a>	</span>		ppd = (struct tpacket3_hdr *) ((uint8_t *) ppd +
+<span class="l"><a name="912" href="#912">912</a>	</span>					       ppd-&gt;tp_next_offset);
+<span class="l"><a name="913" href="#913">913</a>	</span>	}
+<span class="l"><a name="914" href="#914">914</a>	</span>
+<span class="l"><a name="915" href="#915">915</a>	</span>	packets_total += num_pkts;
+<span class="l"><a name="916" href="#916">916</a>	</span>	bytes_total += bytes;
+<span class="l"><a name="917" href="#917">917</a>	</span>}
+<span class="l"><a name="918" href="#918">918</a>	</span>
+<span class="l"><a name="919" href="#919">919</a>	</span>static void flush_block(struct block_desc *pbd)
+<span class="l"><a name="920" href="#920">920</a>	</span>{
+<span class="l"><a name="921" href="#921">921</a>	</span>	pbd-&gt;h1.block_status = TP_STATUS_KERNEL;
+<span class="l"><a name="922" href="#922">922</a>	</span>}
+<span class="l"><a name="923" href="#923">923</a>	</span>
+<span class="l"><a name="924" href="#924">924</a>	</span>static void teardown_socket(struct ring *ring, int fd)
+<span class="l"><a name="925" href="#925">925</a>	</span>{
+<span class="l"><a name="926" href="#926">926</a>	</span>	munmap(ring-&gt;map, ring-&gt;req.tp_block_size * ring-&gt;req.tp_block_nr);
+<span class="l"><a name="927" href="#927">927</a>	</span>	free(ring-&gt;rd);
+<span class="l"><a name="928" href="#928">928</a>	</span>	close(fd);
+<span class="l"><a name="929" href="#929">929</a>	</span>}
+<span class="l"><a name="930" href="#930">930</a>	</span>
+<span class="l"><a name="931" href="#931">931</a>	</span>int main(int argc, char **argp)
+<span class="l"><a name="932" href="#932">932</a>	</span>{
+<span class="l"><a name="933" href="#933">933</a>	</span>	int fd, err;
+<span class="l"><a name="934" href="#934">934</a>	</span>	socklen_t len;
+<span class="l"><a name="935" href="#935">935</a>	</span>	struct ring ring;
+<span class="l"><a name="936" href="#936">936</a>	</span>	struct pollfd pfd;
+<span class="l"><a name="937" href="#937">937</a>	</span>	unsigned int block_num = 0, blocks = 64;
+<span class="l"><a name="938" href="#938">938</a>	</span>	struct block_desc *pbd;
+<span class="l"><a name="939" href="#939">939</a>	</span>	struct tpacket_stats_v3 stats;
+<span class="l"><a name="940" href="#940">940</a>	</span>
+<span class="l"><a name="941" href="#941">941</a>	</span>	if (argc != 2) {
+<span class="l"><a name="942" href="#942">942</a>	</span>		fprintf(stderr, "Usage: %s INTERFACE\n", argp[0]);
+<span class="l"><a name="943" href="#943">943</a>	</span>		return EXIT_FAILURE;
+<span class="l"><a name="944" href="#944">944</a>	</span>	}
+<span class="l"><a name="945" href="#945">945</a>	</span>
+<span class="l"><a name="946" href="#946">946</a>	</span>	signal(SIGINT, sighandler);
+<span class="l"><a name="947" href="#947">947</a>	</span>
+<span class="l"><a name="948" href="#948">948</a>	</span>	memset(&amp;ring, 0, sizeof(ring));
+<span class="l"><a name="949" href="#949">949</a>	</span>	fd = setup_socket(&amp;ring, argp[argc - 1]);
+<span class="l"><a name="950" href="#950">950</a>	</span>	assert(fd &gt; 0);
+<span class="l"><a name="951" href="#951">951</a>	</span>
+<span class="l"><a name="952" href="#952">952</a>	</span>	memset(&amp;pfd, 0, sizeof(pfd));
+<span class="l"><a name="953" href="#953">953</a>	</span>	pfd.fd = fd;
+<span class="l"><a name="954" href="#954">954</a>	</span>	pfd.events = POLLIN | POLLERR;
+<span class="l"><a name="955" href="#955">955</a>	</span>	pfd.revents = 0;
+<span class="l"><a name="956" href="#956">956</a>	</span>
+<span class="l"><a name="957" href="#957">957</a>	</span>	while (likely(!sigint)) {
+<span class="l"><a name="958" href="#958">958</a>	</span>		pbd = (struct block_desc *) ring.rd[block_num].iov_base;
+<span class="l"><a name="959" href="#959">959</a>	</span>
+<span class="l"><a name="960" href="#960">960</a>	</span>		if ((pbd-&gt;h1.block_status &amp; TP_STATUS_USER) == 0) {
+<span class="l"><a name="961" href="#961">961</a>	</span>			poll(&amp;pfd, 1, -1);
+<span class="l"><a name="962" href="#962">962</a>	</span>			continue;
+<span class="l"><a name="963" href="#963">963</a>	</span>		}
+<span class="l"><a name="964" href="#964">964</a>	</span>
+<span class="l"><a name="965" href="#965">965</a>	</span>		walk_block(pbd, block_num);
+<span class="l"><a name="966" href="#966">966</a>	</span>		flush_block(pbd);
+<span class="l"><a name="967" href="#967">967</a>	</span>		block_num = (block_num + 1) % blocks;
+<span class="l"><a name="968" href="#968">968</a>	</span>	}
+<span class="l"><a name="969" href="#969">969</a>	</span>
+<span class="l"><a name="970" href="#970">970</a>	</span>	len = sizeof(stats);
+<span class="l"><a name="971" href="#971">971</a>	</span>	err = getsockopt(fd, SOL_PACKET, PACKET_STATISTICS, &amp;stats, &amp;len);
+<span class="l"><a name="972" href="#972">972</a>	</span>	if (err &lt; 0) {
+<span class="l"><a name="973" href="#973">973</a>	</span>		perror("getsockopt");
+<span class="l"><a name="974" href="#974">974</a>	</span>		exit(1);
+<span class="l"><a name="975" href="#975">975</a>	</span>	}
+<span class="l"><a name="976" href="#976">976</a>	</span>
+<span class="l"><a name="977" href="#977">977</a>	</span>	fflush(stdout);
+<span class="l"><a name="978" href="#978">978</a>	</span>	printf("\nReceived %u packets, %lu bytes, %u dropped, freeze_q_cnt: %u\n",
+<span class="l"><a name="979" href="#979">979</a>	</span>	       stats.tp_packets, bytes_total, stats.tp_drops,
+<span class="l"><a name="980" href="#980">980</a>	</span>	       stats.tp_freeze_q_cnt);
+<span class="l"><a name="981" href="#981">981</a>	</span>
+<span class="l"><a name="982" href="#982">982</a>	</span>	teardown_socket(&amp;ring, fd);
+<span class="l"><a name="983" href="#983">983</a>	</span>	return 0;
+<span class="l"><a name="984" href="#984">984</a>	</span>}
+<span class="l"><a name="985" href="#985">985</a>	</span>
+<span class="l"><a name="986" href="#986">986</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="987" href="#987">987</a>	</span>+ PACKET_QDISC_BYPASS
+<span class="l"><a name="988" href="#988">988</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="989" href="#989">989</a>	</span>
+<span class="l"><a name="990" href="#990">990</a>	</span>If there is a requirement to load the network with many packets in a similar
+<span class="l"><a name="991" href="#991">991</a>	</span>fashion as pktgen does, you might set the following option after socket
+<span class="l"><a name="992" href="#992">992</a>	</span>creation:
+<span class="l"><a name="993" href="#993">993</a>	</span>
+<span class="l"><a name="994" href="#994">994</a>	</span>    int one = 1;
+<span class="l"><a name="995" href="#995">995</a>	</span>    setsockopt(fd, SOL_PACKET, PACKET_QDISC_BYPASS, &amp;one, sizeof(one));
+<span class="l"><a name="996" href="#996">996</a>	</span>
+<span class="l"><a name="997" href="#997">997</a>	</span>This has the side-effect, that packets sent through PF_PACKET will bypass the
+<span class="l"><a name="998" href="#998">998</a>	</span>kernel's qdisc layer and are forcedly pushed to the driver directly. Meaning,
+<span class="l"><a name="999" href="#999">999</a>	</span>packet are not buffered, tc disciplines are ignored, increased loss can occur
+<span class="l"><a name="1000" href="#1000">1000</a>	</span>and such packets are also not visible to other PF_PACKET sockets anymore. So,
+<span class="l"><a name="1001" href="#1001">1001</a>	</span>you have been warned; generally, this can be useful for stress testing various
+<span class="l"><a name="1002" href="#1002">1002</a>	</span>components of a system.
+<span class="l"><a name="1003" href="#1003">1003</a>	</span>
+<span class="l"><a name="1004" href="#1004">1004</a>	</span>On default, PACKET_QDISC_BYPASS is disabled and needs to be explicitly enabled
+<span class="l"><a name="1005" href="#1005">1005</a>	</span>on PF_PACKET sockets.
+<span class="l"><a name="1006" href="#1006">1006</a>	</span>
+<span class="l"><a name="1007" href="#1007">1007</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="1008" href="#1008">1008</a>	</span>+ PACKET_TIMESTAMP
+<span class="l"><a name="1009" href="#1009">1009</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="1010" href="#1010">1010</a>	</span>
+<span class="l"><a name="1011" href="#1011">1011</a>	</span>The PACKET_TIMESTAMP setting determines the source of the timestamp in
+<span class="l"><a name="1012" href="#1012">1012</a>	</span>the packet meta information for mmap(2)ed RX_RING and TX_RINGs.  If your
+<span class="l"><a name="1013" href="#1013">1013</a>	</span>NIC is capable of timestamping packets in hardware, you can request those
+<span class="l"><a name="1014" href="#1014">1014</a>	</span>hardware timestamps to be used. Note: you may need to enable the generation
+<span class="l"><a name="1015" href="#1015">1015</a>	</span>of hardware timestamps with SIOCSHWTSTAMP (see related information from
+<span class="l"><a name="1016" href="#1016">1016</a>	</span>Documentation/networking/timestamping.txt).
+<span class="l"><a name="1017" href="#1017">1017</a>	</span>
+<span class="l"><a name="1018" href="#1018">1018</a>	</span>PACKET_TIMESTAMP accepts the same integer bit field as SO_TIMESTAMPING:
+<span class="l"><a name="1019" href="#1019">1019</a>	</span>
+<span class="l"><a name="1020" href="#1020">1020</a>	</span>    int req = SOF_TIMESTAMPING_RAW_HARDWARE;
+<span class="l"><a name="1021" href="#1021">1021</a>	</span>    setsockopt(fd, SOL_PACKET, PACKET_TIMESTAMP, (void *) &amp;req, sizeof(req))
+<span class="l"><a name="1022" href="#1022">1022</a>	</span>
+<span class="l"><a name="1023" href="#1023">1023</a>	</span>For the mmap(2)ed ring buffers, such timestamps are stored in the
+<span class="l"><a name="1024" href="#1024">1024</a>	</span>tpacket{,2,3}_hdr structure's tp_sec and tp_{n,u}sec members. To determine
+<span class="l"><a name="1025" href="#1025">1025</a>	</span>what kind of timestamp has been reported, the tp_status field is binary |'ed
+<span class="l"><a name="1026" href="#1026">1026</a>	</span>with the following possible bits ...
+<span class="l"><a name="1027" href="#1027">1027</a>	</span>
+<span class="l"><a name="1028" href="#1028">1028</a>	</span>    TP_STATUS_TS_RAW_HARDWARE
+<span class="l"><a name="1029" href="#1029">1029</a>	</span>    TP_STATUS_TS_SOFTWARE
+<span class="l"><a name="1030" href="#1030">1030</a>	</span>
+<span class="l"><a name="1031" href="#1031">1031</a>	</span>... that are equivalent to its SOF_TIMESTAMPING_* counterparts. For the
+<span class="l"><a name="1032" href="#1032">1032</a>	</span>RX_RING, if neither is set (i.e. PACKET_TIMESTAMP is not set), then a
+<span class="l"><a name="1033" href="#1033">1033</a>	</span>software fallback was invoked *within* PF_PACKET's processing code (less
+<span class="l"><a name="1034" href="#1034">1034</a>	</span>precise).
+<span class="l"><a name="1035" href="#1035">1035</a>	</span>
+<span class="l"><a name="1036" href="#1036">1036</a>	</span>Getting timestamps for the TX_RING works as follows: i) fill the ring frames,
+<span class="l"><a name="1037" href="#1037">1037</a>	</span>ii) call sendto() e.g. in blocking mode, iii) wait for status of relevant
+<span class="l"><a name="1038" href="#1038">1038</a>	</span>frames to be updated resp. the frame handed over to the application, iv) walk
+<span class="l"><a name="1039" href="#1039">1039</a>	</span>through the frames to pick up the individual hw/sw timestamps.
+<span class="l"><a name="1040" href="#1040">1040</a>	</span>
+<span class="l"><a name="1041" href="#1041">1041</a>	</span>Only (!) if transmit timestamping is enabled, then these bits are combined
+<span class="l"><a name="1042" href="#1042">1042</a>	</span>with binary | with TP_STATUS_AVAILABLE, so you must check for that in your
+<span class="l"><a name="1043" href="#1043">1043</a>	</span>application (e.g. !(tp_status &amp; (TP_STATUS_SEND_REQUEST | TP_STATUS_SENDING))
+<span class="l"><a name="1044" href="#1044">1044</a>	</span>in a first step to see if the frame belongs to the application, and then
+<span class="l"><a name="1045" href="#1045">1045</a>	</span>one can extract the type of timestamp in a second step from tp_status)!
+<span class="l"><a name="1046" href="#1046">1046</a>	</span>
+<span class="l"><a name="1047" href="#1047">1047</a>	</span>If you don't care about them, thus having it disabled, checking for
+<span class="l"><a name="1048" href="#1048">1048</a>	</span>TP_STATUS_AVAILABLE resp. TP_STATUS_WRONG_FORMAT is sufficient. If in the
+<span class="l"><a name="1049" href="#1049">1049</a>	</span>TX_RING part only TP_STATUS_AVAILABLE is set, then the tp_sec and tp_{n,u}sec
+<span class="l"><a name="1050" href="#1050">1050</a>	</span>members do not contain a valid value. For TX_RINGs, by default no timestamp
+<span class="l"><a name="1051" href="#1051">1051</a>	</span>is generated!
+<span class="l"><a name="1052" href="#1052">1052</a>	</span>
+<span class="l"><a name="1053" href="#1053">1053</a>	</span>See include/linux/net_tstamp.h and Documentation/networking/timestamping
+<span class="l"><a name="1054" href="#1054">1054</a>	</span>for more information on hardware timestamps.
+<span class="l"><a name="1055" href="#1055">1055</a>	</span>
+<span class="l"><a name="1056" href="#1056">1056</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="1057" href="#1057">1057</a>	</span>+ Miscellaneous bits
+<span class="l"><a name="1058" href="#1058">1058</a>	</span>-------------------------------------------------------------------------------
+<span class="l"><a name="1059" href="#1059">1059</a>	</span>
+<span class="l"><a name="1060" href="#1060">1060</a>	</span>- Packet sockets work well together with Linux socket filters, thus you also
+<span class="l"><a name="1061" href="#1061">1061</a>	</span>  might want to have a look at Documentation/networking/filter.txt
+<span class="l"><a name="1062" href="#1062">1062</a>	</span>
+<span class="l"><a name="1063" href="#1063">1063</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="1064" href="#1064">1064</a>	</span>+ THANKS
+<span class="l"><a name="1065" href="#1065">1065</a>	</span>--------------------------------------------------------------------------------
+<span class="l"><a name="1066" href="#1066">1066</a>	</span>   
+<span class="l"><a name="1067" href="#1067">1067</a>	</span>   Jesse Brandeburg, for fixing my grammathical/spelling errors
+</pre><div id="corner"><a href="javascript:hA()">Hide Line Numbers</a></div>
+<!-- botbanner -->
+<script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<!-- KernelDoc Botbanner LN -->
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="ca-pub-5258443501063629"
+     data-ad-slot="3687101769"
+     data-ad-format="auto"></ins>
+<script>
+(adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+<ul id="tm" class="guides">
+<li><a href="/kernel/Documentation/networking">[ networking ]</a></li>
+<li><a href="/kernel/Documentation/networking/00-INDEX">00-INDEX</a></li>
+<li><a href="/kernel/Documentation/networking/3c509.txt">3c509.txt</a></li>
+<li><a href="/kernel/Documentation/networking/6lowpan.txt">6lowpan.txt</a></li>
+<li><a href="/kernel/Documentation/networking/6pack.txt">6pack.txt</a></li>
+<li><a href="/kernel/Documentation/networking/alias.txt">alias.txt</a></li>
+<li><a href="/kernel/Documentation/networking/altera_tse.txt">altera_tse.txt</a></li>
+<li><a href="/kernel/Documentation/networking/arcnet-hardware.txt">arcnet-hardware.txt</a></li>
+<li><a href="/kernel/Documentation/networking/arcnet.txt">arcnet.txt</a></li>
+<li><a href="/kernel/Documentation/networking/atm.txt">atm.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ax25.txt">ax25.txt</a></li>
+<li><a href="/kernel/Documentation/networking/batman-adv.txt">batman-adv.txt</a></li>
+<li><a href="/kernel/Documentation/networking/baycom.txt">baycom.txt</a></li>
+<li><a href="/kernel/Documentation/networking/bonding.txt">bonding.txt</a></li>
+<li><a href="/kernel/Documentation/networking/bridge.txt">bridge.txt</a></li>
+<li><a href="/kernel/Documentation/networking/caif/">[ caif ]</a></li>
+<li><a href="/kernel/Documentation/networking/can.txt">can.txt</a></li>
+<li><a href="/kernel/Documentation/networking/cdc_mbim.txt">cdc_mbim.txt</a></li>
+<li><a href="/kernel/Documentation/networking/checksum-offloads.txt">checksum-offloads.txt</a></li>
+<li><a href="/kernel/Documentation/networking/cops.txt">cops.txt</a></li>
+<li><a href="/kernel/Documentation/networking/cs89x0.txt">cs89x0.txt</a></li>
+<li><a href="/kernel/Documentation/networking/cxacru-cf.py">cxacru-cf.py</a></li>
+<li><a href="/kernel/Documentation/networking/cxacru.txt">cxacru.txt</a></li>
+<li><a href="/kernel/Documentation/networking/cxgb.txt">cxgb.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dccp.txt">dccp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dctcp.txt">dctcp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/de4x5.txt">de4x5.txt</a></li>
+<li><a href="/kernel/Documentation/networking/decnet.txt">decnet.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dl2k.txt">dl2k.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dm9000.txt">dm9000.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dmfe.txt">dmfe.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dns_resolver.txt">dns_resolver.txt</a></li>
+<li><a href="/kernel/Documentation/networking/driver.txt">driver.txt</a></li>
+<li><a href="/kernel/Documentation/networking/dsa/">[ dsa ]</a></li>
+<li><a href="/kernel/Documentation/networking/e100.txt">e100.txt</a></li>
+<li><a href="/kernel/Documentation/networking/e1000.txt">e1000.txt</a></li>
+<li><a href="/kernel/Documentation/networking/e1000e.txt">e1000e.txt</a></li>
+<li><a href="/kernel/Documentation/networking/eql.txt">eql.txt</a></li>
+<li><a href="/kernel/Documentation/networking/fib_trie.txt">fib_trie.txt</a></li>
+<li><a href="/kernel/Documentation/networking/filter.txt">filter.txt</a></li>
+<li><a href="/kernel/Documentation/networking/fore200e.txt">fore200e.txt</a></li>
+<li><a href="/kernel/Documentation/networking/framerelay.txt">framerelay.txt</a></li>
+<li><a href="/kernel/Documentation/networking/gen_stats.txt">gen_stats.txt</a></li>
+<li><a href="/kernel/Documentation/networking/generic-hdlc.txt">generic-hdlc.txt</a></li>
+<li><a href="/kernel/Documentation/networking/generic_netlink.txt">generic_netlink.txt</a></li>
+<li><a href="/kernel/Documentation/networking/gianfar.txt">gianfar.txt</a></li>
+<li><a href="/kernel/Documentation/networking/i40e.txt">i40e.txt</a></li>
+<li><a href="/kernel/Documentation/networking/i40evf.txt">i40evf.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ieee802154.txt">ieee802154.txt</a></li>
+<li><a href="/kernel/Documentation/networking/igb.txt">igb.txt</a></li>
+<li><a href="/kernel/Documentation/networking/igbvf.txt">igbvf.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ip-sysctl.txt">ip-sysctl.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ip_dynaddr.txt">ip_dynaddr.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ipddp.txt">ipddp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/iphase.txt">iphase.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ipsec.txt">ipsec.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ipv6.txt">ipv6.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ipvlan.txt">ipvlan.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ipvs-sysctl.txt">ipvs-sysctl.txt</a></li>
+<li><a href="/kernel/Documentation/networking/irda.txt">irda.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ixgb.txt">ixgb.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ixgbe.txt">ixgbe.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ixgbevf.txt">ixgbevf.txt</a></li>
+<li><a href="/kernel/Documentation/networking/kcm.txt">kcm.txt</a></li>
+<li><a href="/kernel/Documentation/networking/l2tp.txt">l2tp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/lapb-module.txt">lapb-module.txt</a></li>
+<li><a href="/kernel/Documentation/networking/LICENSE.qla3xxx">LICENSE.qla3xxx</a></li>
+<li><a href="/kernel/Documentation/networking/LICENSE.qlcnic">LICENSE.qlcnic</a></li>
+<li><a href="/kernel/Documentation/networking/LICENSE.qlge">LICENSE.qlge</a></li>
+<li><a href="/kernel/Documentation/networking/ltpc.txt">ltpc.txt</a></li>
+<li><a href="/kernel/Documentation/networking/mac80211-auth-assoc-deauth.txt">mac80211-auth-assoc-deauth.txt</a></li>
+<li><a href="/kernel/Documentation/networking/mac80211-injection.txt">mac80211-injection.txt</a></li>
+<li><a href="/kernel/Documentation/networking/mac80211_hwsim/">[ mac80211_hwsim ]</a></li>
+<li><a href="/kernel/Documentation/networking/Makefile">Makefile</a></li>
+<li><a href="/kernel/Documentation/networking/mpls-sysctl.txt">mpls-sysctl.txt</a></li>
+<li><a href="/kernel/Documentation/networking/multiqueue.txt">multiqueue.txt</a></li>
+<li><a href="/kernel/Documentation/networking/netconsole.txt">netconsole.txt</a></li>
+<li><a href="/kernel/Documentation/networking/netdev-FAQ.txt">netdev-FAQ.txt</a></li>
+<li><a href="/kernel/Documentation/networking/netdev-features.txt">netdev-features.txt</a></li>
+<li><a href="/kernel/Documentation/networking/netdevices.txt">netdevices.txt</a></li>
+<li><a href="/kernel/Documentation/networking/netif-msg.txt">netif-msg.txt</a></li>
+<li><a href="/kernel/Documentation/networking/nf_conntrack-sysctl.txt">nf_conntrack-sysctl.txt</a></li>
+<li><a href="/kernel/Documentation/networking/nfc.txt">nfc.txt</a></li>
+<li><a href="/kernel/Documentation/networking/openvswitch.txt">openvswitch.txt</a></li>
+<li><a href="/kernel/Documentation/networking/operstates.txt">operstates.txt</a></li>
+<li id="current"><a href="/kernel/Documentation/networking/packet_mmap.txt">packet_mmap.txt</a></li>
+<li><a href="/kernel/Documentation/networking/phonet.txt">phonet.txt</a></li>
+<li><a href="/kernel/Documentation/networking/phy.txt">phy.txt</a></li>
+<li><a href="/kernel/Documentation/networking/pktgen.txt">pktgen.txt</a></li>
+<li><a href="/kernel/Documentation/networking/PLIP.txt">PLIP.txt</a></li>
+<li><a href="/kernel/Documentation/networking/policy-routing.txt">policy-routing.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ppp_generic.txt">ppp_generic.txt</a></li>
+<li><a href="/kernel/Documentation/networking/proc_net_tcp.txt">proc_net_tcp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/radiotap-headers.txt">radiotap-headers.txt</a></li>
+<li><a href="/kernel/Documentation/networking/ray_cs.txt">ray_cs.txt</a></li>
+<li><a href="/kernel/Documentation/networking/rds.txt">rds.txt</a></li>
+<li><a href="/kernel/Documentation/networking/README.ipw2100">README.ipw2100</a></li>
+<li><a href="/kernel/Documentation/networking/README.ipw2200">README.ipw2200</a></li>
+<li><a href="/kernel/Documentation/networking/README.sb1000">README.sb1000</a></li>
+<li><a href="/kernel/Documentation/networking/regulatory.txt">regulatory.txt</a></li>
+<li><a href="/kernel/Documentation/networking/rxrpc.txt">rxrpc.txt</a></li>
+<li><a href="/kernel/Documentation/networking/s2io.txt">s2io.txt</a></li>
+<li><a href="/kernel/Documentation/networking/scaling.txt">scaling.txt</a></li>
+<li><a href="/kernel/Documentation/networking/sctp.txt">sctp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/secid.txt">secid.txt</a></li>
+<li><a href="/kernel/Documentation/networking/segmentation-offloads.txt">segmentation-offloads.txt</a></li>
+<li><a href="/kernel/Documentation/networking/skfp.txt">skfp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/smc9.txt">smc9.txt</a></li>
+<li><a href="/kernel/Documentation/networking/spider_net.txt">spider_net.txt</a></li>
+<li><a href="/kernel/Documentation/networking/stmmac.txt">stmmac.txt</a></li>
+<li><a href="/kernel/Documentation/networking/switchdev.txt">switchdev.txt</a></li>
+<li><a href="/kernel/Documentation/networking/tc-actions-env-rules.txt">tc-actions-env-rules.txt</a></li>
+<li><a href="/kernel/Documentation/networking/tcp-thin.txt">tcp-thin.txt</a></li>
+<li><a href="/kernel/Documentation/networking/tcp.txt">tcp.txt</a></li>
+<li><a href="/kernel/Documentation/networking/team.txt">team.txt</a></li>
+<li><a href="/kernel/Documentation/networking/timestamping/">[ timestamping ]</a></li>
+<li><a href="/kernel/Documentation/networking/timestamping.txt">timestamping.txt</a></li>
+<li><a href="/kernel/Documentation/networking/tlan.txt">tlan.txt</a></li>
+<li><a href="/kernel/Documentation/networking/tproxy.txt">tproxy.txt</a></li>
+<li><a href="/kernel/Documentation/networking/tuntap.txt">tuntap.txt</a></li>
+<li><a href="/kernel/Documentation/networking/udplite.txt">udplite.txt</a></li>
+<li><a href="/kernel/Documentation/networking/vortex.txt">vortex.txt</a></li>
+<li><a href="/kernel/Documentation/networking/vrf.txt">vrf.txt</a></li>
+<li><a href="/kernel/Documentation/networking/vxge.txt">vxge.txt</a></li>
+<li><a href="/kernel/Documentation/networking/vxlan.txt">vxlan.txt</a></li>
+<li><a href="/kernel/Documentation/networking/x25-iface.txt">x25-iface.txt</a></li>
+<li><a href="/kernel/Documentation/networking/x25.txt">x25.txt</a></li>
+<li><a href="/kernel/Documentation/networking/xfrm_proc.txt">xfrm_proc.txt</a></li>
+<li><a href="/kernel/Documentation/networking/xfrm_sync.txt">xfrm_sync.txt</a></li>
+<li><a href="/kernel/Documentation/networking/xfrm_sysctl.txt">xfrm_sysctl.txt</a></li>
+<li><a href="/kernel/Documentation/networking/z8530drv.txt">z8530drv.txt</a></li>
+<li>&nbsp;</li>
+</ul>
+<div id="tagline"><span class="aboutkernel"><a href="http://www.mjmwired.net/resources/mjm-kernel-docs.html">About Kernel Documentation</a></span><span class="bluelink"> <a href="http://www.kernel.org/" target="_blank">Linux Kernel</a> <a href="http://www.mjmwired.net/contact/">Contact</a> <a href="http://www.mjmwired.net/resources/">Linux Resources</a> <a href="http://www.mjmwired.net/linux/">Linux Blog</a></span></div>
+<!-- disclaim -->
+<hr><div id="disclaim">Information is copyright its respective author. All material is available from the Linux Kernel Source distributed under a GPL License. This page is provided as a free service by mjmwired.net.</div>
+<script type="text/javascript" src="https://apis.google.com/js/plusone.js"></script>
+
+</div>
+</body></html>
