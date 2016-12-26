@@ -268,13 +268,13 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    epfd = epoll_create1(EPOLL_CLOEXEC);
+    epfd = epoll_create(1);
     if (epfd < 0) {
         fprintf(stderr, "epoll_create1: %s\n", strerror(errno));
         goto epoll_create_failed;
     }
 
-    ev.events   = EPOLLIN | EPOLLRDHUP;
+    ev.events   = EPOLLIN;
     ev.data.ptr = &ring;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
         fprintf(stderr, "epoll_ctl: %s\n", strerror(errno));
