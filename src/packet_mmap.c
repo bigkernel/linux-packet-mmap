@@ -283,15 +283,15 @@ int main(int argc, char *argv[])
 
     memset(&sigterm, 0, sizeof(sigterm));
     sigterm.sa_handler = sig_cb;
+    sigterm.sa_flags   = SA_RESTART;
     sigemptyset(&sigterm.sa_mask);
-    sigterm.sa_flags = SA_RESTART;
-
     memcpy(&sigint, &sigterm, sizeof(sigint));
     memcpy(&sigquit, &sigterm, sizeof(sigquit));
+    /* In signal callback function,
+     * it will blocked the self of next incoming. */
     sigaddset(&sigterm.sa_mask, SIGTERM);
     sigaddset(&sigint.sa_mask, SIGINT);
     sigaddset(&sigterm.sa_mask, SIGQUIT);
-
     if (sigaction(SIGTERM, &sigterm, NULL) ||
         sigaction(SIGINT, &sigint, NULL) ||
         sigaction(SIGQUIT, &sigquit, NULL)) {
@@ -302,8 +302,10 @@ int main(int argc, char *argv[])
     while (LIKELY(!loop_stop)) {
         tp = get_next_tpacket(&ring);
 
-        if (tp->tp_status & TP_STATUS_KERNEL) {
-            err = epoll_wait(epfd, &rev, 1, -1);
+        if (tp->tp_status == TP_STATUS_KERNEL) {
+            do {
+                err = epoll_wait(epfd, &rev, 1, -1);
+            } while (err < 0 && errno == EINTR);
             if (err < 0) {
                 fprintf(stderr, "epoll_wait: %s\n", strerror(errno));
                 goto epoll_wait_failed;
@@ -316,7 +318,7 @@ int main(int argc, char *argv[])
         flush_packet(tp);
     }
 
-    return 0;
+    errno = 0;
 
 sigaction_failed:
     /* Do nothing */
@@ -329,5 +331,5 @@ epoll_ctl_failed:
 
 epoll_create_failed:
     teardown_socket(&ring, fd);
-    exit(EXIT_FAILURE);
+    return errno;
 }
