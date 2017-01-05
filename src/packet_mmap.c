@@ -291,7 +291,7 @@ int main(int argc, char *argv[])
      * it will blocked the self of next incoming. */
     sigaddset(&sigterm.sa_mask, SIGTERM);
     sigaddset(&sigint.sa_mask, SIGINT);
-    sigaddset(&sigterm.sa_mask, SIGQUIT);
+    sigaddset(&sigquit.sa_mask, SIGQUIT);
     if (sigaction(SIGTERM, &sigterm, NULL) ||
         sigaction(SIGINT, &sigint, NULL) ||
         sigaction(SIGQUIT, &sigquit, NULL)) {
@@ -303,16 +303,16 @@ int main(int argc, char *argv[])
         tp = get_next_tpacket(&ring);
 
         if (tp->tp_status == TP_STATUS_KERNEL) {
-            do {
+            do
                 err = epoll_wait(epfd, &rev, 1, -1);
-            } while (err < 0 && errno == EINTR);
+            while (err < 0 && errno == EINTR);
             if (err < 0) {
                 fprintf(stderr, "epoll_wait: %s\n", strerror(errno));
                 goto epoll_wait_failed;
             }
         }
 
-        if (tp->tp_status & TP_STATUS_USER)
+        if (tp->tp_status == TP_STATUS_USER)
             display(tp);
 
         flush_packet(tp);
