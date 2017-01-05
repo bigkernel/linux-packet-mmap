@@ -312,7 +312,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (tp->tp_status == TP_STATUS_USER)
+        if (tp->tp_status & TP_STATUS_USER)
             display(tp);
 
         flush_packet(tp);
