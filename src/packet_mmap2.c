@@ -22,6 +22,10 @@
 #include <sys/uio.h>
 #include <sys/user.h>
 
+/* Used to setup promiscuos mode when @setsockopt is not support */
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
+
 #ifndef CHECK
 #   define CHECK(expr) assert(expr)
 #   define CHECK_EQ(a, b) CHECK((a) == (b))
@@ -46,10 +50,16 @@ static void usage(const char *name)
     exit(EXIT_FAILURE);
 }
 
-static int setup_promisc_mode(int fd, int ifindex, int enable)
+#if 0
+static int setup_promisc_mode(int fd, const char *ifname, int enable)
 {
+    /* @setsockopt may not support SOL_PACKET - PACKET_ADD_MEMBERSHIP */
     struct packet_mreq mreq;
     int opt = enable ? PACKET_ADD_MEMBERSHIP : PACKET_DROP_MEMBERSHIP;
+    unsigned int ifindex = if_nametoindex(ifname);
+
+    if (!ifindex)
+        return -1;
 
     memset(&mreq, 0, sizeof(mreq));
     mreq.mr_ifindex = ifindex;
@@ -57,39 +67,79 @@ static int setup_promisc_mode(int fd, int ifindex, int enable)
 
     return setsockopt(fd, SOL_PACKET, opt, &mreq, sizeof(mreq));
 }
+#else
+static int setup_promisc_mode(int fd, const char *ifname, int enable)
+{
+    struct ifreq ifr;
 
-static int setup_socket(int ifindex)
+    memset(&ifr, 0, sizeof(ifr));
+    memcpy(&ifr.ifr_name, ifname, IFNAMSIZ - 1);
+
+    if (ioctl(fd, SIOCGIFFLAGS, &ifr))
+        return -1;
+
+    if (enable && !(ifr.ifr_flags & IFF_PROMISC)) {
+        ifr.ifr_flags |= IFF_PROMISC;
+        return ioctl(fd, SIOCSIFFLAGS, &ifr);
+    } else if (!enable && (ifr.ifr_flags & IFF_PROMISC)) {
+        ifr.ifr_flags &= ~IFF_PROMISC;
+        return ioctl(fd, SIOCSIFFLAGS, &ifr);
+    }
+
+    return 0;
+}
+#endif
+
+static void teardown_socket(int fd, const char *ifname)
+{
+    unsigned int ifindex;
+
+    CHECK_NE(fd, -1);
+    setup_promisc_mode(fd, ifname, 0);
+    close(fd);
+}
+
+static int setup_socket(const char *ifname)
 {
     struct sockaddr_ll ll;
     struct packet_mreq mreq;
+    unsigned int ifindex;
     int fd;
 
-    if ((fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP))) < 0) {
+    if ((fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
         fprintf(stderr, "socket: %s\n", strerror(errno));
         return -1;
     }
 
-    memset(&ll, 0, sizeof(ll));
-    ll.sll_family   = AF_PACKET;
-    ll.sll_protocol = htons(ETH_P_IP);
-    ll.sll_ifindex  = ifindex;
-    ll.sll_hatype   = 0;
-    ll.sll_pkttype  = 0;
-    ll.sll_halen    = 0;
-
-    if (bind(fd, (struct sockaddr *)&ll, sizeof(ll)) < 0) {
-        fprintf(stderr, "bind: %s\n", strerror(errno));
-        close(fd);
-        return -1;
+    if (setup_promisc_mode(fd, ifname, 1)) {
+        fprintf(stderr, "setup_promisc_mode: %s\n", strerror(errno));
+        goto failed;
     }
 
-    if (setup_promisc_mode(fd, ifindex, 1) < 0) {
-        fprintf(stderr, "setup_promisc_mode: %s\n", strerror(errno));
-        close(fd);
-        return -1;
+    ifindex = if_nametoindex(ifname);
+    if (!ifindex) {
+        fprintf(stderr, "if_nametoindex: %s\n", strerror(errno));
+        goto failed;
+    }
+
+    memset(&ll, 0, sizeof(ll));
+    ll.sll_family   = AF_PACKET;
+    ll.sll_protocol = htons(ETH_P_ALL);
+    ll.sll_ifindex  = ifindex;
+    ll.sll_hatype   = 0;
+    ll.sll_pkttype  = /*PACKET_OTHERHOST*/0;
+    ll.sll_halen    = 0;
+
+    if (bind(fd, (const struct sockaddr *)&ll, sizeof(ll)) < 0) {
+        fprintf(stderr, "bind: %s\n", strerror(errno));
+        goto failed;
     }
 
     return fd;
+
+failed:
+    teardown_socket(fd, ifname);
+    return -1;
 }
 
 static void dump_packet(const char *buf, size_t buflen)
@@ -168,13 +218,6 @@ static void dump_packet(const char *buf, size_t buflen)
             snaplen);
 }
 
-static void teardown_socket(int fd, int ifindex)
-{
-    CHECK_NE(fd, -1);
-    setup_promisc_mode(fd, ifindex, 0);
-    close(fd);
-}
-
 static volatile unsigned int loop_stop = 0;
 static void sig_cb(int signo)
 {
@@ -183,7 +226,7 @@ static void sig_cb(int signo)
 
 int main(int argc, char *argv[])
 {
-    int fd, epfd, ifindex, err;
+    int fd, epfd, err;
     const char *ifname;
     char recvbuf[RECV_SIZE];
     ssize_t recvlen;
@@ -194,13 +237,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
 
     ifname = argv[1];
-    ifindex = if_nametoindex(ifname);
-    if (!ifindex) {
-        fprintf(stderr, "if_nametoindex: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    fd = setup_socket(ifindex);
+    fd = setup_socket(ifname);
     if (fd < 0) {
         fprintf(stderr, "setup_socket error\n");
         exit(EXIT_FAILURE);
@@ -267,6 +304,6 @@ epoll_ctl_failed:
     /* Do nothing */
 
 epoll_create_failed:
-    teardown_socket(fd, ifindex);
+    teardown_socket(fd, ifname);
     return errno;
 }
