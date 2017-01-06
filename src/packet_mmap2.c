@@ -4,13 +4,14 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
+#include <signal.h>
+#include <unistd.h>
 #include <assert.h>
+#include <errno.h>
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <unistd.h>
 #include <sys/epoll.h>
-#include <signal.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
 #include <linux/if_packet.h>
@@ -18,10 +19,8 @@
 #include <linux/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
-
 #include <sys/uio.h>
 #include <sys/user.h>
-#include <errno.h>
 
 #ifndef CHECK
 #   define CHECK(expr) assert(expr)
@@ -38,6 +37,8 @@
 #ifndef UNLIKELY
 #   define UNLIKELY(expr) __builtin_expect(!!(expr), 0)
 #endif
+
+#define RECV_SIZE (2048 * 4)
 
 static void usage(const char *name)
 {
@@ -83,7 +84,7 @@ static int setup_socket(int ifindex)
     }
 
     if (setup_promisc_mode(fd, ifindex, 1) < 0) {
-        fprintf(stderr, "setup_promisc: %s\n", strerror(errno));
+        fprintf(stderr, "setup_promisc_mode: %s\n", strerror(errno));
         close(fd);
         return -1;
     }
@@ -106,17 +107,22 @@ static void dump_packet(const char *buf, size_t buflen)
     char dport[NI_MAXSERV]   = {0};
     struct sockaddr_in sa    = {0};
     struct sockaddr_in da    = {0};
+
+    const char *data         = 0;
     ssize_t snaplen          = 0;
 
     int err, is_tcphdr;
 
     eth  = (struct ethhdr *)buf;
-    CHECK_EQ(eth->h_proto, htons(ETH_P_IP));
+    if (eth->h_proto != htons(ETH_P_IP)) {
+        /* Broken packet */
+        return;
+    }
     smac = (const char *)eth->h_source;
     dmac = (const char *)eth->h_dest;
 
     ip = (struct iphdr *)(buf + sizeof(*eth));
-    sa.sin_family      = ip->version == IPVERSION ? AF_INET : AF_INET6;
+    sa.sin_family      =
     da.sin_family      = ip->version == IPVERSION ? AF_INET : AF_INET6;
     sa.sin_addr.s_addr = ip->saddr;
     da.sin_addr.s_addr = ip->daddr;
@@ -125,19 +131,19 @@ static void dump_packet(const char *buf, size_t buflen)
         sa.sin_port = tcp->source;
         da.sin_port = tcp->dest;
         is_tcphdr   = 1;
+        data        = (const char *)tcp + (tcp->doff * 4);
+        snaplen     = buf + buflen - data;
     } else if (ip->protocol == IPPROTO_UDP) {
         udp = (struct udphdr *)((const char *)ip + (ip->ihl * 4));
         sa.sin_port = udp->source;
         da.sin_port = udp->dest;
         is_tcphdr   = 0;
+        data        = (const char *)udp + sizeof(*udp);
+        snaplen     = htons(udp->len) - sizeof(*udp);
     } else {
         /* example as IPPROTO_ICMP, IPPROTO_IGMP */
         return;
     }
-
-    snaplen = (const char *)(buf + buflen)
-            - (const char *)(ip) - (ip->ihl * 4)
-            - (is_tcphdr ? sizeof(*tcp) : sizeof(*udp));
 
     if ((err = getnameinfo((const struct sockaddr *)&sa, sizeof(sa),
                       sbuf, sizeof(sbuf), sport, sizeof(sport),
@@ -179,7 +185,7 @@ int main(int argc, char *argv[])
 {
     int fd, epfd, ifindex, err;
     const char *ifname;
-    char recvbuf[2048];
+    char recvbuf[RECV_SIZE];
     ssize_t recvlen;
     struct epoll_event ev, rev;
     struct sigaction sigterm, sigint, sigquit;
@@ -215,7 +221,7 @@ int main(int argc, char *argv[])
 
     memset(&sigterm, 0, sizeof(sigterm));
     sigterm.sa_handler = sig_cb;
-    sigterm.sa_flags   = SA_RESTART;
+    /* sigterm.sa_flags   = SA_RESTART; */
     sigemptyset(&sigterm.sa_mask);
     memcpy(&sigint, &sigterm, sizeof(sigint));
     memcpy(&sigquit, &sigterm, sizeof(sigquit));
@@ -232,29 +238,30 @@ int main(int argc, char *argv[])
     }
 
     while (LIKELY(!loop_stop)) {
-        do
-           err = epoll_wait(epfd, &rev, 1, -1);
-        while (err < 0 && errno == EINTR);
+        err = epoll_wait(epfd, &rev, 1, -1);
         if (err < 0) {
-            fprintf(stderr, "epoll_wait: %s\n", strerror(errno));
+            if (errno != EINTR)
+                fprintf(stderr, "epoll_wait: %s\n", strerror(errno));
             break;
         }
 
         if (rev.events & EPOLLERR)
             break;
 
+        memset(recvbuf, 0, sizeof(recvbuf));
         if (rev.events & EPOLLIN) {
-            do
-                recvlen = recv(fd, recvbuf, 2048, 0);
-            while (err < 0 && errno == EINTR);
-            if (err <= 0) {
-                fprintf(stderr, "recv: %s\n", strerror(errno));
+            recvlen = recv(fd, recvbuf, RECV_SIZE, 0);
+            if (recvlen <= 0) {
+                if (errno != EINTR)
+                    fprintf(stderr, "recv: %s\n", strerror(errno));
                 break;
             }
         }
 
         dump_packet(recvbuf, recvlen);
     }
+
+    fprintf(stdout, "Done.\n");
 
 epoll_ctl_failed:
     /* Do nothing */
