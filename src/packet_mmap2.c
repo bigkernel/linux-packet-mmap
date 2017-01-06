@@ -249,7 +249,7 @@ int main(int argc, char *argv[])
         goto epoll_create_failed;
     }
 
-    ev.events   = EPOLLIN;
+    ev.events   = EPOLLIN | EPOLLET;
     ev.data.ptr = recvbuf;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
         fprintf(stderr, "epoll_ctl: %s\n", strerror(errno));
