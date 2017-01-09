@@ -30,8 +30,10 @@
 #   define CHECK(expr)    assert(expr)
 #   define CHECK_EQ(a, b) CHECK((a) == (b))
 #   define CHECK_NE(a, b) CHECK((a) != (b))
-#   define CHECK_GE(a, b) CHECK((a) > (b))
-#   define CHECK_LE(a, b) CHECK((a) < (b))
+#   define CHECK_GT(a, b) CHECK((a) > (b))
+#   define CHECK_LT(a, b) CHECK((a) < (b))
+#   define CHECK_GE(a, b) CHECK((a) >= (b))
+#   define CHECK_LE(a, b) CHECK((a) <= (b))
 #endif
 
 #ifdef __GNUC__
@@ -355,7 +357,7 @@ failed:
     return -1;
 }
 
-static void dump_packet1(const struct packet_info *pi)
+static void dump_packet1(const struct packet_info *pi, int show_tcp)
 {
     unsigned char smac[ETH_ALEN];
     unsigned char dmac[ETH_ALEN];
@@ -367,6 +369,9 @@ static void dump_packet1(const struct packet_info *pi)
     struct sockaddr_in dsin = {0};
 
     int err;
+
+    if (!show_tcp && pi->pi_tcppkt)
+        return;
 
     memcpy(smac, pi->pi_eth.h_source, ETH_ALEN);
     memcpy(dmac, pi->pi_eth.h_dest, ETH_ALEN);
@@ -384,10 +389,10 @@ static void dump_packet1(const struct packet_info *pi)
     }
     if ((err = getnameinfo((const struct sockaddr *)&ssin, sizeof(ssin),
                       saddr, sizeof(saddr), sport, sizeof(sport),
-                      NI_NUMERICHOST | NI_NUMERICSERV)) ||
+                      NI_NUMERICHOST/* | NI_NUMERICSERV*/)) ||
         (err = getnameinfo((const struct sockaddr *)&dsin, sizeof(dsin),
                       daddr, sizeof(daddr), dport, sizeof(dport),
-                      NI_NUMERICHOST | NI_NUMERICSERV))) {
+                      NI_NUMERICHOST/* | NI_NUMERICSERV*/))) {
         fprintf(stderr, "getnameinfo: %s\n", gai_strerror(err));
         return;
     }
@@ -396,22 +401,18 @@ static void dump_packet1(const struct packet_info *pi)
     fprintf(stdout,
             "LINK %02x:%02x:%02x:%02x:%02x:%02x -> "
             "%02x:%02x:%02x:%02x:%02x:%02x\n"
-            "IP   %s -> %s proto %s %s-chksum %d\n"
-            "NET  %s %s -> %s %s-chksum %d\n",
-            smac[0] & 0xFF, smac[1] & 0xFF, smac[2] & 0xFF,
-            smac[3] & 0xFF, smac[4] & 0xFF, smac[5] & 0xFF,
-            dmac[0] & 0xFF, dmac[1] & 0xFF, dmac[2] & 0xFF,
-            dmac[3] & 0xFF, dmac[4] & 0xFF, dmac[5] & 0xFF,
+            "IP   %s -> %s protocol %s checksum %d\n"
+            "NET  %s -> %s size %zd checksum %d\n",
+            smac[0], smac[1], smac[2], smac[3], smac[4], smac[5],
+            dmac[0], dmac[1], dmac[2], dmac[3], dmac[4], dmac[5],
 
             saddr,
             daddr,
             pi->pi_tcppkt ? "TCP" : "UDP",
-            pi->pi_tcppkt ? "TCP" : "UDP",
             pi->pi_ip.check,
 
-            pi->pi_tcppkt ? "TCP" : "UDP",
             sport, dport,
-            pi->pi_tcppkt ? "TCP" : "UDP",
+            pi->pi_data.iov_len,
             pi->pi_tcppkt ? pi->pi_tcp.check : pi->pi_udp.check);
 
     /* TCP options */
@@ -513,7 +514,7 @@ int main(int argc, char *argv[])
 
         pi = extract_buffer(recvbuf, recvlen);
         if (pi) {
-            dump_packet1(pi);
+            dump_packet1(pi, 0);
             free_packet(pi);
         }
     }
