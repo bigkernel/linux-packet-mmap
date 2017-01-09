@@ -17,6 +17,7 @@ AC_PROG_LIBTOOL
 
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h inttypes.h netdb.h stdint.h stdlib.h string.h sys/socket.h unistd.h])
+AC_CHECK_HEADERS([stddef.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_SIZE_T
