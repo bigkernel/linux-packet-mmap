@@ -7,9 +7,10 @@
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
+#include <endian.h>
+#include <netdb.h>
 #include <net/if.h>
 #include <arpa/inet.h>
-#include <netdb.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
@@ -124,13 +125,14 @@ struct packet_info {
     struct ethhdr pi_eth;
     struct iphdr  pi_ip;
     struct iovec  pi_ipopt;
+    uint16_t      pi_rncks;
     int           pi_tcppkt;
     union {
         struct tcphdr tcp;
         struct udphdr udp;
-    } u;
-#define pi_tcp u.tcp
-#define pi_udp u.udp
+    } __u_net;
+#define pi_tcp __u_net.tcp
+#define pi_udp __u_net.udp
     struct iovec  pi_tcpopt;
     struct iovec  pi_data;
 };
@@ -144,18 +146,37 @@ struct dnsv4udp_hdr {
     uint16_t num_addi_rr;
 };
 
-static uint16_t checksum(const uint16_t *buf, size_t len)
+static uint16_t checksum_by_magic(uint32_t saddr, uint32_t daddr,
+                                  uint16_t len, uint16_t proto,
+                                  const uint16_t *buf, size_t size)
 {
-    uint32_t chksum = 0;
-    int i;
+    uint64_t chksum = 0;
+    size_t i;
 
-    for (i = 0; i < len; i++)
+    CHECK_NE(buf, NULL);
+
+    if (!size)
+        return 0;
+
+    chksum += (saddr & 0xFFFF);
+    chksum += (saddr >> 16);
+    chksum += (daddr & 0xFFFF);
+    chksum += (daddr >> 16);
+    chksum += len;
+    chksum += proto;
+
+    for (i = 0; i < size; i++)
         chksum += buf[i];
 
-    while (chksum >> 16)
-        chksum = (chksum & 0xFFFF) + (chksum >> 16);
+    chksum = (chksum & 0xFFFF) + (chksum >> 16);
+    chksum += (chksum >> 16);
 
     return ~chksum;
+}
+
+static uint16_t checksum(const uint16_t *buf, size_t size)
+{
+    return checksum_by_magic(0, 0, 0, 0, buf, size);
 }
 
 static struct packet_info *extract_buffer(const char *buf, size_t buflen)
@@ -219,7 +240,9 @@ static struct packet_info *extract_buffer(const char *buf, size_t buflen)
 
     res = calloc(1, sizeof(*res));
     CHECK_NE(res, NULL);
+
     res->pi_eth    = *eth;
+
     res->pi_ip     = *ip;
     res->pi_ipopt  = (struct iovec){NULL, 0};
     if (ipopt.iov_len) {
@@ -228,6 +251,7 @@ static struct packet_info *extract_buffer(const char *buf, size_t buflen)
         memcpy(res->pi_ipopt.iov_base, ipopt.iov_base, ipopt.iov_len);
         res->pi_ipopt.iov_len  = ipopt.iov_len;
     }
+
     res->pi_tcppkt = is_tcphdr;
     if (is_tcphdr) {
         res->pi_tcp    = *tcp;
@@ -244,7 +268,7 @@ static struct packet_info *extract_buffer(const char *buf, size_t buflen)
 
     res->pi_data = (struct iovec){NULL, 0};
     if (snaplen) {
-        res->pi_data.iov_base = malloc(snaplen);
+        res->pi_data.iov_base = calloc(snaplen + snaplen % 2, 1);
         CHECK_NE(res->pi_data.iov_base, NULL);
         memcpy(res->pi_data.iov_base, data, snaplen);
         res->pi_data.iov_len  = snaplen;
@@ -357,7 +381,15 @@ failed:
     return -1;
 }
 
-static void dump_packet1(const struct packet_info *pi, int show_tcp)
+/* @Parameter pkt_type
+ * 1 - show TCP packet only
+ * 2 - show UDP packet only
+ * 3 - both */
+#define SHOW_TCP 0x01
+#define SHOW_UDP 0x02
+#define SHOW_MSK 0x03
+
+static void dump_packet1(const struct packet_info *pi, int pkt_type)
 {
     unsigned char smac[ETH_ALEN];
     unsigned char dmac[ETH_ALEN];
@@ -368,9 +400,16 @@ static void dump_packet1(const struct packet_info *pi, int show_tcp)
     struct sockaddr_in ssin = {0};
     struct sockaddr_in dsin = {0};
 
+    uint16_t ncs, tcs;
+    size_t rawlen;
+    char rawbuf[RECV_SIZE]  = {0};
     int err;
 
-    if (!show_tcp && pi->pi_tcppkt)
+    if (!(pkt_type & SHOW_MSK))
+        return;
+    if ((pkt_type & SHOW_TCP) && !pi->pi_tcppkt)
+        return;
+    if ((pkt_type & SHOW_UDP) && pi->pi_tcppkt)
         return;
 
     memcpy(smac, pi->pi_eth.h_source, ETH_ALEN);
@@ -397,33 +436,83 @@ static void dump_packet1(const struct packet_info *pi, int show_tcp)
         return;
     }
 
+    /* IP and TCP/UDP reverse checksum,
+     * if result is not 0 that mean packet broken */
+    ncs    = checksum((const uint16_t *)&pi->pi_ip, pi->pi_ip.ihl * 2);
+
+    if (pi->pi_tcppkt) {
+        rawlen = sizeof(pi->pi_tcp);
+        memcpy(rawbuf, &pi->pi_tcp, rawlen);
+        if (pi->pi_tcpopt.iov_len) {
+            memcpy(rawbuf + rawlen,
+                   pi->pi_tcpopt.iov_base,
+                   pi->pi_tcpopt.iov_len);
+            rawlen += pi->pi_tcpopt.iov_len;
+        }
+    } else {
+        rawlen = sizeof(pi->pi_udp);
+        memcpy(rawbuf, &pi->pi_udp, rawlen);
+    }
+
+    /* 0 bytes UDP packet is valid */
+    if (pi->pi_data.iov_len) {
+        memcpy(rawbuf + rawlen, pi->pi_data.iov_base, pi->pi_data.iov_len);
+        rawlen += pi->pi_data.iov_len;
+    }
+    tcs    = checksum_by_magic(pi->pi_ip.saddr,
+                               pi->pi_ip.daddr,
+                               htons(rawlen),
+                               pi->pi_ip.protocol << 8,
+                               (const uint16_t *)&rawbuf,
+                               rawlen / 2 + rawlen % 2);
+
     /* Ethernet address, IP address, TCP/UDP port and attributes */
     fprintf(stdout,
-            "LINK %02x:%02x:%02x:%02x:%02x:%02x -> "
-            "%02x:%02x:%02x:%02x:%02x:%02x\n"
-            "IP   %s -> %s protocol %s checksum %d\n"
-            "NET  %s -> %s size %zd checksum %d\n",
+            "DATA-LINK %02x:%02x:%02x:%02x:%02x:%02x -> "
+            "%02x:%02x:%02x:%02x:%02x:%02x proto %s\n"
+
+            "NETWORK   %-17s -> %-17s proto %s tos %x tot_len %d "
+            "ttl %u id %u off %u flags %u Opt %zd checksum %u(%u %s)\n"
+
+            "TRANPORT  %-17s -> %-17s size %zd checksum %u(%u %s)\n",
+
             smac[0], smac[1], smac[2], smac[3], smac[4], smac[5],
             dmac[0], dmac[1], dmac[2], dmac[3], dmac[4], dmac[5],
+            pi->pi_eth.h_proto == htons(ETH_P_IP) ? "IP" : "Unknown",
 
-            saddr,
-            daddr,
+            saddr, daddr,
             pi->pi_tcppkt ? "TCP" : "UDP",
+            pi->pi_ip.tos,
+            ntohs(pi->pi_ip.tot_len),
+            pi->pi_ip.ttl,
+            ntohs(pi->pi_ip.id),
+            ntohs(pi->pi_ip.frag_off) & 0x1FFF,
+            ntohs(pi->pi_ip.frag_off) >> 13,
+            pi->pi_ipopt.iov_len,
             pi->pi_ip.check,
+            ncs, ncs ? "BAD" : "OK",
 
             sport, dport,
             pi->pi_data.iov_len,
-            pi->pi_tcppkt ? pi->pi_tcp.check : pi->pi_udp.check);
+            pi->pi_tcppkt ? pi->pi_tcp.check : pi->pi_udp.check,
+            tcs, tcs ? "BAD" : "OK");
 
     /* TCP options */
     if (pi->pi_tcppkt) {
-        fprintf(stdout,
-                "\tOptions tos %d ttl %d id %d off %d flags %d\n",
-                pi->pi_ip.tos,
-                pi->pi_ip.ttl,
-                ntohs(pi->pi_ip.id),
-                ntohs(pi->pi_ip.frag_off) & 0x1FFF,
-                ntohs(pi->pi_ip.frag_off) >> 13);
+        fprintf(stdout, "\tSeq %u AckSeq %u doff %u fin %u syn %u "
+                "rst %u psh %u ack %u urg %u win %u urg_ptr %u [Opt %zd]\n",
+                ntohs(pi->pi_tcp.seq),
+                ntohs(pi->pi_tcp.ack_seq),
+                pi->pi_tcp.doff,
+                pi->pi_tcp.fin,
+                pi->pi_tcp.syn,
+                pi->pi_tcp.rst,
+                pi->pi_tcp.psh,
+                pi->pi_tcp.ack,
+                pi->pi_tcp.urg,
+                ntohs(pi->pi_tcp.window),
+                ntohs(pi->pi_tcp.urg_ptr),
+                pi->pi_tcpopt.iov_len);
     }
 }
 
@@ -504,7 +593,7 @@ int main(int argc, char *argv[])
 
         memset(recvbuf, 0, sizeof(recvbuf));
         if (rev.events & EPOLLIN) {
-            recvlen = recv(fd, recvbuf, RECV_SIZE, 0);
+            recvlen = recv(fd, recvbuf, RECV_SIZE - 2, 0);
             if (recvlen <= 0) {
                 if (errno != EINTR)
                     fprintf(stderr, "recv: %s\n", strerror(errno));
@@ -514,7 +603,7 @@ int main(int argc, char *argv[])
 
         pi = extract_buffer(recvbuf, recvlen);
         if (pi) {
-            dump_packet1(pi, 0);
+            dump_packet1(pi, SHOW_TCP);
             free_packet(pi);
         }
     }
