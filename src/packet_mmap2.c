@@ -49,78 +49,6 @@
 #define OPT_BUFF_SIZE 40
 #define BUFFER_SIZE   2048
 
-typedef void *QUEUE[2];
-#define QUEUE_NEXT(q)      (*(QUEUE **)&((*(q))[0]))
-#define QUEUE_PREV(q)      (*(QUEUE **)&((*(q))[1]))
-#define QUEUE_PREV_NEXT(q) (QUEUE_NEXT(QUEUE_PREV(q)))
-#define QUEUE_NEXT_PREV(q) (QUEUE_PREV(QUEUE_NEXT(q)))
-
-#include <stddef.h>
-#ifndef offsetof
-#define offsetof(type, filed) ((size_t)(&((type *)0)->filed))
-#endif
-
-#define QUEUE_DATA(ptr, type, field)                                    \
-    ((type *)((char *)(ptr) - offsetof(type, filed)))
-
-#define QUEUE_FOREACH(q, h)                                             \
-    for ((q) = QUEUE_NEXT(h); (q) != (h); (q) = QUEUE_NEXT(q))
-
-#define QUEUE_EMPTY(q)                                                  \
-    ((const QUEUE *)(q) == (const QUEUE *)QUEUE_NEXT(q))
-
-#define QUEUE_HEAD(q) QUEUE_NEXT(q)
-
-#define QUEUE_INIT(q) do {                                              \
-    QUEUE_NEXT(q) = (q);                                                \
-    QUEUE_PREV(q) = (q);                                                \
-} while (0)
-
-#define QUEUE_ADD(h, n) do {                                            \
-    QUEUE_PREV_NEXT(h) = QUEUE_NEXT(n);                                 \
-    QUEUE_NEXT_PREV(n) = QUEUE_PREV(h);                                 \
-    QUEUE_PREV(h)      = QUEUE_PREV(n);                                 \
-    QUEUE_PREV_NEXT(h) = (h);                                           \
-} while (0)
-
-#define QUEUE_SPLIT(h, q, n) do {                                       \
-    QUEUE_PREV(n)      = QUEUE_PREV(h);                                 \
-    QUEUE_PREV_NEXT(n) = (n);                                           \
-    QUEUE_NEXT(n)      = (q);                                           \
-    QUEUE_PREV(h)      = QUEUE_PREV(q);                                 \
-    QUEUE_PREV_NEXT(h) = (h);                                           \
-    QUEUE_PREV(q)      = (n);                                           \
-} while (0)
-
-#define QUEUE_MOVE(h, n) do {                                           \
-    if (QUEUE_EMPTY(h)) {                                               \
-        QUEUE_INIT(n);                                                  \
-    } else {                                                            \
-        QUEUE *q = QUEUE_HEAD(h);                                       \
-        QUEUE_SPLIT(h, q, n);                                           \
-    }                                                                   \
-} while (0)
-
-#define QUEUE_INSERT_HEAD(h, q) do {                                    \
-    QUEUE_NEXT(q)      = QUEUE_NEXT(h);                                 \
-    QUEUE_PREV(q)      = (h);                                           \
-    QUEUE_NEXT_PREV(q) = (q);                                           \
-    QUEUE_NEXT(h)      = (q);                                           \
-} while (0)
-
-#define QUEUE_INSERT_TAIL(h, q) do {                                    \
-    QUEUE_NEXT(q)      = (h);                                           \
-    QUEUE_PREV(q)      = QUEUE_PREV(h);                                 \
-    QUEUE_PREV_NEXT(q) = (q);                                           \
-    QUEUE_PREV(h)      = (q);                                           \
-} while (0)
-
-#define QUEUE_REMOVE(q) do {                                            \
-    QUEUE_PREV_NEXT(q) = QUEUE_NEXT(q);                                 \
-    QUEUE_NEXT_PREV(q) = QUEUE_PREV(q);                                 \
-    QUEUE_INIT(q);                                                      \
-} while (0)
-
 struct packet_info {
     struct ethhdr pi_eth;
     struct iphdr *pi_ip;
@@ -148,14 +76,12 @@ struct dnsv4udp_respond_packet {
     int (*make)(struct dnsv4udp_respond_packet *,
                 const struct packet_info *);
     void (*free)(struct dnsv4udp_respond_packet *);
-    QUEUE que;
 };
 
 #define INIT_DNSV4UDP_RESPOND_PACKET(p) do {                            \
     (p)->data = (struct iovec){NULL, 0};                                \
     (p)->make = dnsresp_make;                                           \
     (p)->free = dnsresp_free;                                           \
-    QUEUE_INIT(&((p)->que));                                            \
 } while (0)
 
 static uint16_t checksum_by_magic(uint32_t saddr, uint32_t daddr,
@@ -250,7 +176,7 @@ static int dnsresp_make(struct dnsv4udp_respond_packet *resp,
     offset += sizeof(ttl);
     memcpy(data + offset, "\x00\x04", 2);
     offset += 2;
-    inet_pton(AF_INET, "192.168.100.2", &addr);
+    inet_pton(AF_INET, "192.168.43.1", &addr);
     memcpy(data + offset, &addr, sizeof(addr));
     offset += sizeof(addr);
 
