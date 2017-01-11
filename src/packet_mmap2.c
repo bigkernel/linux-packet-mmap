@@ -45,9 +45,9 @@
 #    define UNLIKEY(expr)  (expr)
 #endif
 
-#define RECV_SIZE      (2048 * 4)
-#define OPT_BUFF_SIZE  40
-#define DATA_BUFF_SIZE RECV_SIZE
+#define RECV_SIZE     (2048 * 32)
+#define OPT_BUFF_SIZE 40
+#define BUFFER_SIZE   2048
 
 typedef void *QUEUE[2];
 #define QUEUE_NEXT(q)      (*(QUEUE **)&((*(q))[0]))
@@ -123,18 +123,15 @@ typedef void *QUEUE[2];
 
 struct packet_info {
     struct ethhdr pi_eth;
-    struct iphdr  pi_ip;
-    struct iovec  pi_ipopt;
-    uint16_t      pi_rncks;
-    int           pi_tcppkt;
+    struct iphdr *pi_ip;
+    int pi_tcphdr;
     union {
-        struct tcphdr tcp;
-        struct udphdr udp;
-    } __u_net;
-#define pi_tcp __u_net.tcp
-#define pi_udp __u_net.udp
-    struct iovec  pi_tcpopt;
-    struct iovec  pi_data;
+        struct tcphdr *tcp;
+        struct udphdr *udp;
+    } __u;
+#define pi_tcp __u.tcp
+#define pi_udp __u.udp
+    struct iovec pi_data;
 };
 
 struct dnsv4udp_hdr {
@@ -146,6 +143,21 @@ struct dnsv4udp_hdr {
     uint16_t num_addi_rr;
 };
 
+struct dnsv4udp_respond_packet {
+    struct iovec data;
+    int (*make)(struct dnsv4udp_respond_packet *,
+                const struct packet_info *);
+    void (*free)(struct dnsv4udp_respond_packet *);
+    QUEUE que;
+};
+
+#define INIT_DNSV4UDP_RESPOND_PACKET(p) do {                            \
+    (p)->data = (struct iovec){NULL, 0};                                \
+    (p)->make = dnsresp_make;                                           \
+    (p)->free = dnsresp_free;                                           \
+    QUEUE_INIT(&((p)->que));                                            \
+} while (0)
+
 static uint16_t checksum_by_magic(uint32_t saddr, uint32_t daddr,
                                   uint16_t len, uint16_t proto,
                                   const uint16_t *buf, size_t size)
@@ -154,7 +166,6 @@ static uint16_t checksum_by_magic(uint32_t saddr, uint32_t daddr,
     size_t i;
 
     CHECK_NE(buf, NULL);
-
     if (!size)
         return 0;
 
@@ -179,16 +190,123 @@ static uint16_t checksum(const uint16_t *buf, size_t size)
     return checksum_by_magic(0, 0, 0, 0, buf, size);
 }
 
+static int dnsresp_make(struct dnsv4udp_respond_packet *resp,
+                         const struct packet_info *pi)
+{
+    struct ethhdr *eth;
+    struct iphdr *ip;
+    struct udphdr *udp;
+    struct dnsv4udp_hdr *dns;
+    const char *domains, *glass;
+    size_t dlen;
+    char *rawbuf, *data;
+    size_t offset;
+    uint32_t addr, ttl  = htonl(30);
+
+    CHECK_NE(resp, NULL);
+    CHECK_NE(pi, NULL);
+
+    dns = (struct dnsv4udp_hdr *)pi->pi_data.iov_base;
+    if (dns->flags != 0x0001) {
+        /* It is DNS respond packet */
+        errno = -110;
+        return -1;
+    }
+
+    domains = (const char *)pi->pi_data.iov_base + sizeof(*dns);
+    dlen    = strlen(domains);
+    if (!dlen) {
+        errno = -111;
+        return -1;
+    }
+
+    glass   = domains + dlen + 1;
+    if (memcmp(glass, "\x00\x01", 2) && memcmp(glass, "\x00\x1C", 2)) {
+        errno = -112;
+        return -1;
+    }
+
+    rawbuf = calloc(BUFFER_SIZE, 1);
+    CHECK_NE(rawbuf, NULL);
+    eth    = (struct ethhdr *)(rawbuf);
+    ip     = (struct iphdr *)(rawbuf + sizeof(*eth));
+    udp    = (struct udphdr *)(rawbuf + sizeof(*eth) + sizeof(*ip));
+    data   = rawbuf + sizeof(*eth) + sizeof(*ip) + sizeof(*udp);
+
+    /* Make DNS Respond packet */
+    dns    = (struct dnsv4udp_hdr *)data;
+
+    memcpy(data, pi->pi_data.iov_base, sizeof(*dns));
+    offset = sizeof(*dns);
+    dns->num_answ_rr = htons(1);
+    dns->flags       = 0x8081;
+    memcpy(data + offset, domains, dlen + 1);
+    offset += dlen + 1;
+    memcpy(data + offset, "\x00\x01\x00\x01", 4);
+    offset += 4;
+    memcpy(data + offset, "\xC0\x0C\x00\x01\x00\x01", 6);
+    offset += 6;
+    memcpy(data + offset, &ttl, sizeof(ttl));
+    offset += sizeof(ttl);
+    memcpy(data + offset, "\x00\x04", 2);
+    offset += 2;
+    inet_pton(AF_INET, "192.168.100.2", &addr);
+    memcpy(data + offset, &addr, sizeof(addr));
+    offset += sizeof(addr);
+
+    /* Make UDP header */
+    memcpy(&udp->dest, &pi->pi_udp->source, sizeof(udp->dest));
+    memcpy(&udp->source, &pi->pi_udp->dest, sizeof(udp->source));
+    udp->len   = htons(sizeof(*udp) + offset);
+    udp->check = 0;
+
+    /* Make IP header */
+    ip->version  = IPVERSION;
+    ip->ihl      = sizeof(*ip) / 4;
+    ip->tos      = 0xC0;
+    ip->tot_len  = htons(sizeof(*ip) + sizeof(*udp) + offset);
+    ip->id       = 0;
+    ip->frag_off = 0;
+    ip->ttl      = 30;
+    ip->protocol = IPPROTO_UDP;
+    ip->check    = 0;
+    memcpy(&ip->daddr, &pi->pi_ip->saddr, sizeof(ip->daddr));
+    memcpy(&ip->saddr, &pi->pi_ip->daddr, sizeof(ip->daddr));
+
+    /* Make Ethernet header */
+    memcpy(eth->h_dest, pi->pi_eth.h_source, ETH_ALEN);
+    memcpy(eth->h_source, pi->pi_eth.h_dest, ETH_ALEN);
+    memcpy(&eth->h_proto, &pi->pi_eth.h_proto, sizeof(eth->h_proto));
+
+    /* Make checksum */
+    udp->check = checksum_by_magic(ip->saddr, ip->daddr,
+                                   udp->len, ip->protocol << 8,
+                                   (const uint16_t *)udp,
+                                   ntohs(udp->len) / 2 + ntohs(udp->len) % 2);
+    ip->check  = checksum((const uint16_t *)ip, ip->ihl * 2);
+    resp->data.iov_len  = sizeof(*eth) + sizeof(*ip) + sizeof(*udp) + offset;
+    resp->data.iov_base = rawbuf;
+
+    return 0;
+}
+
+static void dnsresp_free(struct dnsv4udp_respond_packet *rp)
+{
+    CHECK_NE(rp, NULL);
+    free(rp->data.iov_base);
+}
+
 static struct packet_info *extract_buffer(const char *buf, size_t buflen)
 {
     const struct ethhdr *eth;
     const struct iphdr  *ip;
     const struct tcphdr *tcp;
     const struct udphdr *udp;
-    struct iovec ipopt  = {(char [OPT_BUFF_SIZE]){0}, 0};
-    struct iovec tcpopt = {(char [OPT_BUFF_SIZE]){0}, 0};
     const char *data;
     size_t snaplen;
+    uint16_t ncs, tcs;
+    size_t rawlen;
+    char rawbuf[RECV_SIZE]  = {0};
     struct packet_info *res;
     int is_tcphdr;
 
@@ -196,77 +314,106 @@ static struct packet_info *extract_buffer(const char *buf, size_t buflen)
     CHECK_NE(buflen, 0);
 
     eth = (const struct ethhdr *)buf;
-    if (eth->h_proto != htons(ETH_P_IP))
+    if ((const char *)eth + sizeof(*eth) >= buf + buflen) {
+        errno = -100;
         return NULL;
+    }
+    if (eth->h_proto != htons(ETH_P_IP)) {
+        errno = -101;
+        return NULL;
+    }
 
     ip = (const struct iphdr *)(buf + sizeof(*eth));
-    /* DO NOT care IPv6 */
-    if (ip->version != IPVERSION)
+    if ((const char *)ip + sizeof(*ip) >= buf + buflen) {
+        errno = -102;
         return NULL;
-    if (ip->ihl * 4 > sizeof(*ip)) {
-        ipopt.iov_len = ip->ihl * 4 - sizeof(*ip);
-        CHECK_LE(ipopt.iov_len, OPT_BUFF_SIZE);
-        memcpy(ipopt.iov_base, (const char *)ip + sizeof(*ip), ipopt.iov_len);
+    }
+    /* DO NOT care IPv6 */
+    if (ip->version != IPVERSION) {
+        errno = -103;
+        return NULL;
     }
 
     switch (ip->protocol) {
     case IPPROTO_TCP:
         is_tcphdr = 1;
         tcp       = (const struct tcphdr *)((const char *)ip + ip->ihl * 4);
-        if (tcp->doff * 4 > sizeof(*tcp)) {
-            tcpopt.iov_len = tcp->doff * 4 - sizeof(*tcp);
-            CHECK_LE(tcpopt.iov_len, OPT_BUFF_SIZE);
-            memcpy(tcpopt.iov_base,
-                   (const char *)tcp + sizeof(*tcp),
-                   tcpopt.iov_len);
+        if ((const char *)tcp + sizeof(*tcp) > buf + buflen) {
+            errno = -104;
+            return NULL;
         }
-
         data      = (const char *)tcp + tcp->doff * 4;
-        snaplen   = buf + buflen - (const char *)tcp - tcp->doff * 4;
+        snaplen   = ntohs(ip->tot_len) - ip->ihl * 4 - tcp->doff * 4;
+        if (data + snaplen != buf + buflen) {
+            errno = -105;
+            return NULL;
+        }
         break;
 
     case IPPROTO_UDP:
         is_tcphdr = 0;
         udp       = (const struct udphdr *)((const char *)ip + ip->ihl * 4);
-
+        if ((const char *)udp + sizeof(*udp) > buf + buflen) {
+            errno = -106;
+            return NULL;
+        }
         data      = (const char *)udp + sizeof(*udp);
-        snaplen   = ntohs(udp->len) - sizeof(*udp);
+        snaplen   = ntohs(ip->tot_len) - ip->ihl * 4 - sizeof(*udp);
+        if (data + snaplen != buf + buflen) {
+            errno = -107;
+            return NULL;
+        }
         break;
 
     default:
+        errno = -108;
         /* DO NOT care IPPROTO_ICMP, IPPROTO_IGMP and other */
+        return NULL;
+    }
+
+    /* IP and TCP/UDP reverse checksum,
+     * if result is not 0 that mean packet broken */
+    if (is_tcphdr) {
+        rawlen = tcp->doff * 4;
+        memcpy(rawbuf, tcp, rawlen);
+    } else {
+        rawlen = sizeof(*udp);
+        memcpy(rawbuf, udp, rawlen);
+    }
+    /* 0 bytes UDP packet is valid */
+    if (snaplen) {
+        memcpy(rawbuf + rawlen, data, snaplen);
+        rawlen += snaplen;
+    }
+    ncs = checksum((const uint16_t *)ip, ip->ihl * 2);
+    tcs = checksum_by_magic(ip->saddr, ip->daddr,
+                            htons(rawlen), ip->protocol << 8,
+                            (const uint16_t *)&rawbuf,
+                            rawlen / 2 + rawlen % 2);
+    if (ncs || tcs){
+        fprintf(stderr,
+                "ncs or tcs reverse checksum invalid[ncs %u tcs %u]\n",
+                ncs, tcs);
+        errno = -109;
         return NULL;
     }
 
     res = calloc(1, sizeof(*res));
     CHECK_NE(res, NULL);
-
-    res->pi_eth    = *eth;
-
-    res->pi_ip     = *ip;
-    res->pi_ipopt  = (struct iovec){NULL, 0};
-    if (ipopt.iov_len) {
-        res->pi_ipopt.iov_base = malloc(ipopt.iov_len);
-        CHECK_NE(res->pi_ipopt.iov_base, NULL);
-        memcpy(res->pi_ipopt.iov_base, ipopt.iov_base, ipopt.iov_len);
-        res->pi_ipopt.iov_len  = ipopt.iov_len;
-    }
-
-    res->pi_tcppkt = is_tcphdr;
+    res->pi_eth = *eth;
+    res->pi_ip  = malloc(ip->ihl * 4);
+    CHECK_NE(res->pi_ip, NULL);
+    memcpy(res->pi_ip, ip, ip->ihl * 4);
+    res->pi_tcphdr = is_tcphdr;
     if (is_tcphdr) {
-        res->pi_tcp    = *tcp;
-        res->pi_tcpopt = (struct iovec){NULL, 0};
-        if (tcpopt.iov_len) {
-            res->pi_tcpopt.iov_base = malloc(tcpopt.iov_len);
-            CHECK_NE(res->pi_tcpopt.iov_base, NULL);
-            memcpy(res->pi_tcpopt.iov_base, tcpopt.iov_base, tcpopt.iov_len);
-            res->pi_tcpopt.iov_len  = tcpopt.iov_len;
-        }
+        res->pi_tcp = malloc(tcp->doff * 4);
+        CHECK_NE(res->pi_tcp, NULL);
+        memcpy(res->pi_tcp, tcp, tcp->doff * 4);
     } else {
-        res->pi_udp = *udp;
+        res->pi_udp = malloc(sizeof(*udp));
+        CHECK_NE(res->pi_udp, NULL);
+        memcpy(res->pi_udp, udp, sizeof(*udp));
     }
-
-    res->pi_data = (struct iovec){NULL, 0};
     if (snaplen) {
         res->pi_data.iov_base = calloc(snaplen + snaplen % 2, 1);
         CHECK_NE(res->pi_data.iov_base, NULL);
@@ -279,20 +426,14 @@ static struct packet_info *extract_buffer(const char *buf, size_t buflen)
 static void free_packet(struct packet_info *pi)
 {
     CHECK_NE(pi, NULL);
-    if (pi->pi_ipopt.iov_len && pi->pi_ipopt.iov_base)
-        free(pi->pi_ipopt.iov_base);
-    if (pi->pi_tcpopt.iov_len && pi->pi_tcpopt.iov_base)
-        free(pi->pi_tcpopt.iov_base);
+    CHECK_NE(pi->pi_ip, NULL);
+    CHECK_NE(pi->pi_tcp, NULL);
+
+    free(pi->pi_ip);
+    free(pi->pi_tcp);
     if (pi->pi_data.iov_len && pi->pi_data.iov_base)
         free(pi->pi_data.iov_base);
     free(pi);
-}
-
-/* @brief compress_packet Make DNS response packet buffer that will be
- * attached to @QUEUE and send when the socket is writable. */
-static const char *compress_packet(const struct packet_info *pi)
-{
-    return NULL;
 }
 
 /* @setsockopt may not support SOL_PACKET -> PACKET_ADD_MEMBERSHIP */
@@ -381,15 +522,22 @@ failed:
     return -1;
 }
 
-/* @Parameter pkt_type
- * 1 - show TCP packet only
- * 2 - show UDP packet only
- * 3 - both */
-#define SHOW_TCP 0x01
-#define SHOW_UDP 0x02
-#define SHOW_MSK 0x03
+static void dump_dnspacket(const char *buf, size_t buflen)
+{
+    const struct dnsv4udp_hdr *hdr;
 
-static void dump_packet1(const struct packet_info *pi, int pkt_type)
+    CHECK_NE(buf, NULL);
+
+    hdr = (const struct dnsv4udp_hdr *)buf;
+    fprintf(stderr,
+            "\tid %u flags %x num_q %u num_answ_rr %u "
+            "num_auth_rr %u num_addi_rr %u\n",
+            hdr->id, hdr->flags,
+            hdr->num_q, hdr->num_answ_rr,
+            hdr->num_auth_rr, hdr->num_addi_rr);
+}
+
+static void dump_packet1(const struct packet_info *pi)
 {
     unsigned char smac[ETH_ALEN];
     unsigned char dmac[ETH_ALEN];
@@ -400,31 +548,21 @@ static void dump_packet1(const struct packet_info *pi, int pkt_type)
     struct sockaddr_in ssin = {0};
     struct sockaddr_in dsin = {0};
 
-    uint16_t ncs, tcs;
-    size_t rawlen;
-    char rawbuf[RECV_SIZE]  = {0};
     int err;
-
-    if (!(pkt_type & SHOW_MSK))
-        return;
-    if ((pkt_type & SHOW_TCP) && !pi->pi_tcppkt)
-        return;
-    if ((pkt_type & SHOW_UDP) && pi->pi_tcppkt)
-        return;
 
     memcpy(smac, pi->pi_eth.h_source, ETH_ALEN);
     memcpy(dmac, pi->pi_eth.h_dest, ETH_ALEN);
 
     ssin.sin_family      =
     dsin.sin_family      = AF_INET;
-    ssin.sin_addr.s_addr = pi->pi_ip.saddr;
-    dsin.sin_addr.s_addr = pi->pi_ip.daddr;
-    if (pi->pi_tcppkt) {
-        ssin.sin_port = pi->pi_tcp.source;
-        dsin.sin_port = pi->pi_tcp.dest;
+    ssin.sin_addr.s_addr = pi->pi_ip->saddr;
+    dsin.sin_addr.s_addr = pi->pi_ip->daddr;
+    if (pi->pi_tcphdr) {
+        ssin.sin_port = pi->pi_tcp->source;
+        dsin.sin_port = pi->pi_tcp->dest;
     } else {
-        ssin.sin_port = pi->pi_udp.source;
-        dsin.sin_port = pi->pi_udp.dest;
+        ssin.sin_port = pi->pi_udp->source;
+        dsin.sin_port = pi->pi_udp->dest;
     }
     if ((err = getnameinfo((const struct sockaddr *)&ssin, sizeof(ssin),
                       saddr, sizeof(saddr), sport, sizeof(sport),
@@ -436,35 +574,6 @@ static void dump_packet1(const struct packet_info *pi, int pkt_type)
         return;
     }
 
-    /* IP and TCP/UDP reverse checksum,
-     * if result is not 0 that mean packet broken */
-    ncs    = checksum((const uint16_t *)&pi->pi_ip, pi->pi_ip.ihl * 2);
-
-    if (pi->pi_tcppkt) {
-        rawlen = sizeof(pi->pi_tcp);
-        memcpy(rawbuf, &pi->pi_tcp, rawlen);
-        if (pi->pi_tcpopt.iov_len) {
-            memcpy(rawbuf + rawlen,
-                   pi->pi_tcpopt.iov_base,
-                   pi->pi_tcpopt.iov_len);
-            rawlen += pi->pi_tcpopt.iov_len;
-        }
-    } else {
-        rawlen = sizeof(pi->pi_udp);
-        memcpy(rawbuf, &pi->pi_udp, rawlen);
-    }
-
-    /* 0 bytes UDP packet is valid */
-    if (pi->pi_data.iov_len) {
-        memcpy(rawbuf + rawlen, pi->pi_data.iov_base, pi->pi_data.iov_len);
-        rawlen += pi->pi_data.iov_len;
-    }
-    tcs    = checksum_by_magic(pi->pi_ip.saddr,
-                               pi->pi_ip.daddr,
-                               htons(rawlen),
-                               pi->pi_ip.protocol << 8,
-                               (const uint16_t *)&rawbuf,
-                               rawlen / 2 + rawlen % 2);
 
     /* Ethernet address, IP address, TCP/UDP port and attributes */
     fprintf(stdout,
@@ -472,47 +581,44 @@ static void dump_packet1(const struct packet_info *pi, int pkt_type)
             "%02x:%02x:%02x:%02x:%02x:%02x proto %s\n"
 
             "NETWORK   %-17s -> %-17s proto %s tos %x tot_len %d "
-            "ttl %u id %u off %u flags %u Opt %zd checksum %u(%u %s)\n"
+            "ihl %u ttl %u id %u off %u flags %u checksum %u\n"
 
-            "TRANPORT  %-17s -> %-17s size %zd checksum %u(%u %s)\n",
+            "TRANPORT  %-17s -> %-17s size %zd checksum %u\n",
 
             smac[0], smac[1], smac[2], smac[3], smac[4], smac[5],
             dmac[0], dmac[1], dmac[2], dmac[3], dmac[4], dmac[5],
             pi->pi_eth.h_proto == htons(ETH_P_IP) ? "IP" : "Unknown",
 
             saddr, daddr,
-            pi->pi_tcppkt ? "TCP" : "UDP",
-            pi->pi_ip.tos,
-            ntohs(pi->pi_ip.tot_len),
-            pi->pi_ip.ttl,
-            ntohs(pi->pi_ip.id),
-            ntohs(pi->pi_ip.frag_off) & 0x1FFF,
-            ntohs(pi->pi_ip.frag_off) >> 13,
-            pi->pi_ipopt.iov_len,
-            pi->pi_ip.check,
-            ncs, ncs ? "BAD" : "OK",
+            pi->pi_tcphdr ? "TCP" : "UDP",
+            pi->pi_ip->tos,
+            ntohs(pi->pi_ip->tot_len),
+            pi->pi_ip->ihl,
+            pi->pi_ip->ttl,
+            ntohs(pi->pi_ip->id),
+            ntohs(pi->pi_ip->frag_off) & 0x1FFF,
+            ntohs(pi->pi_ip->frag_off) >> 13,
+            pi->pi_ip->check,
 
             sport, dport,
             pi->pi_data.iov_len,
-            pi->pi_tcppkt ? pi->pi_tcp.check : pi->pi_udp.check,
-            tcs, tcs ? "BAD" : "OK");
+            pi->pi_tcphdr ? pi->pi_tcp->check : pi->pi_udp->check);
 
     /* TCP options */
-    if (pi->pi_tcppkt) {
+    if (pi->pi_tcphdr) {
         fprintf(stdout, "\tSeq %u AckSeq %u doff %u fin %u syn %u "
-                "rst %u psh %u ack %u urg %u win %u urg_ptr %u [Opt %zd]\n",
-                ntohs(pi->pi_tcp.seq),
-                ntohs(pi->pi_tcp.ack_seq),
-                pi->pi_tcp.doff,
-                pi->pi_tcp.fin,
-                pi->pi_tcp.syn,
-                pi->pi_tcp.rst,
-                pi->pi_tcp.psh,
-                pi->pi_tcp.ack,
-                pi->pi_tcp.urg,
-                ntohs(pi->pi_tcp.window),
-                ntohs(pi->pi_tcp.urg_ptr),
-                pi->pi_tcpopt.iov_len);
+                "rst %u psh %u ack %u urg %u win %u urg_ptr %u\n",
+                ntohs(pi->pi_tcp->seq),
+                ntohs(pi->pi_tcp->ack_seq),
+                pi->pi_tcp->doff,
+                pi->pi_tcp->fin,
+                pi->pi_tcp->syn,
+                pi->pi_tcp->rst,
+                pi->pi_tcp->psh,
+                pi->pi_tcp->ack,
+                pi->pi_tcp->urg,
+                ntohs(pi->pi_tcp->window),
+                ntohs(pi->pi_tcp->urg_ptr));
     }
 }
 
@@ -581,7 +687,8 @@ int main(int argc, char *argv[])
     }
 
     while (LIKELY(!loop_stop)) {
-        err = epoll_wait(epfd, &rev, 1, -1);
+        recvlen = 0;
+        err     = epoll_wait(epfd, &rev, 1, -1);
         if (err < 0) {
             if (errno != EINTR)
                 fprintf(stderr, "epoll_wait: %s\n", strerror(errno));
@@ -603,7 +710,32 @@ int main(int argc, char *argv[])
 
         pi = extract_buffer(recvbuf, recvlen);
         if (pi) {
-            dump_packet1(pi, SHOW_TCP);
+            if (!pi->pi_tcphdr && ntohs(pi->pi_udp->dest) == 53) {
+                struct dnsv4udp_respond_packet pkt;
+                INIT_DNSV4UDP_RESPOND_PACKET(&pkt);
+
+                if (!pkt.make(&pkt, pi)) {
+                    struct packet_info *pi2 = extract_buffer(pkt.data.iov_base,
+                            pkt.data.iov_len);
+
+                    if (pi2) {
+                        /* dump capture packet */
+                        dump_packet1(pi);
+                        dump_dnspacket(pi->pi_data.iov_base,
+                                       pi->pi_data.iov_len);
+
+                        /* dump constructor packet */
+                        dump_packet1(pi2);
+                        dump_dnspacket(pi2->pi_data.iov_base,
+                                       pi2->pi_data.iov_len);
+                        free_packet(pi2);
+
+                        send(fd, pkt.data.iov_base, pkt.data.iov_len, 0);
+                    }
+                    pkt.free(&pkt);
+                }
+
+            }
             free_packet(pi);
         }
     }
