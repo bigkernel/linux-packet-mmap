@@ -184,7 +184,7 @@ static int dnsresp_make(struct dnsv4udp_respond_packet *resp,
     offset += sizeof(ttl);
     memcpy(data + offset, "\x00\x04", 2);
     offset += 2;
-    if (ntohs(dns->flags) == 0x01) {/* A */
+    if (!memcmp(glass, "\x00\x01", 2)) {/* A */
         inet_pton(AF_INET, "192.168.43.1", &addr);
         memcpy(data + offset, &addr, sizeof(addr));
         offset += sizeof(addr);
@@ -464,8 +464,10 @@ failed:
 static void dump_dnspacket(const char *buf, size_t buflen)
 {
     const struct dnsv4udp_hdr *hdr;
-    const char *name;
+    const char *ptr;
+    char domain[1024] = {0};
     uint16_t req_type, req_class;
+    unsigned int flen;
 
     CHECK_NE(buf, NULL);
 
@@ -473,19 +475,28 @@ static void dump_dnspacket(const char *buf, size_t buflen)
     fprintf(stderr,
             "\tid %u flags %x num_q %u num_answ_rr %u "
             "num_auth_rr %u num_addi_rr %u\n",
-            hdr->id, hdr->flags,
-            ntohs(hdr->num_q), hdr->num_answ_rr,
-            hdr->num_auth_rr, hdr->num_addi_rr);
+            ntohs(hdr->id), ntohs(hdr->flags),
+            ntohs(hdr->num_q), ntohs(hdr->num_answ_rr),
+            ntohs(hdr->num_auth_rr), ntohs(hdr->num_addi_rr));
 
     /* DNS request */
-    if ((hdr->flags & QR) == 1) {
-        name      = (const char *)hdr + sizeof(*hdr);
-        req_type  = ((uint16_t *)(name + strlen(name) + 1))[0];
-        req_class = ((uint16_t *)(name + strlen(name) + 1))[1];
+    if ((ntohs(hdr->flags) & QR) == 0) {
+        ptr       = (const char *)hdr + sizeof(*hdr);
+        req_type  = ((uint16_t *)(ptr + strlen(ptr) + 1))[0];
+        req_class = ((uint16_t *)(ptr + strlen(ptr) + 1))[1];
+
+
+        while ((flen = (int)*ptr)) {
+            ptr++;
+            strncat(domain, ptr, flen);
+            strncat(domain, ".", 1);
+            ptr += flen;
+        }
+
         fprintf(stderr,
                 "\tRequest Type %x Request class %x "
                 "Request domain %s\n",
-                ntohs(req_type), ntohs(req_class), name);
+                ntohs(req_type), ntohs(req_class), domain);
     }
 }
 
