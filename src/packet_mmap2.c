@@ -71,6 +71,14 @@ struct dnsv4udp_hdr {
     uint16_t num_addi_rr;
 };
 
+#define QR 0x0001
+#define OPCODE_MASK 0x001E
+#define AA 0x0020
+#define TC 0x0040
+#define RD 0x0080
+#define RA 0x0100
+#define ROPCODE_MASK 0xF000
+
 struct dnsv4udp_respond_packet {
     struct iovec data;
     int (*make)(struct dnsv4udp_respond_packet *,
@@ -147,7 +155,7 @@ static int dnsresp_make(struct dnsv4udp_respond_packet *resp,
     }
 
     glass   = domains + dlen + 1;
-    if (memcmp(glass, "\x00\x01", 2) && memcmp(glass, "\x00\x1C", 2)) {
+    if (memcmp(glass, "\x00\x01", 2) && memcmp(glass, "\x00\x0C", 2)) {
         errno = -112;
         return -1;
     }
@@ -176,9 +184,14 @@ static int dnsresp_make(struct dnsv4udp_respond_packet *resp,
     offset += sizeof(ttl);
     memcpy(data + offset, "\x00\x04", 2);
     offset += 2;
-    inet_pton(AF_INET, "192.168.43.1", &addr);
-    memcpy(data + offset, &addr, sizeof(addr));
-    offset += sizeof(addr);
+    if (ntohs(dns->flags) == 0x01) {/* A */
+        inet_pton(AF_INET, "192.168.43.1", &addr);
+        memcpy(data + offset, &addr, sizeof(addr));
+        offset += sizeof(addr);
+    } else {/* PTR */
+        memcpy(data + offset, "192.168.43.1", 13);
+        offset += 13;
+    }
 
     /* Make UDP header */
     memcpy(&udp->dest, &pi->pi_udp->source, sizeof(udp->dest));
@@ -451,6 +464,8 @@ failed:
 static void dump_dnspacket(const char *buf, size_t buflen)
 {
     const struct dnsv4udp_hdr *hdr;
+    const char *name;
+    uint16_t req_type, req_class;
 
     CHECK_NE(buf, NULL);
 
@@ -459,8 +474,19 @@ static void dump_dnspacket(const char *buf, size_t buflen)
             "\tid %u flags %x num_q %u num_answ_rr %u "
             "num_auth_rr %u num_addi_rr %u\n",
             hdr->id, hdr->flags,
-            hdr->num_q, hdr->num_answ_rr,
+            ntohs(hdr->num_q), hdr->num_answ_rr,
             hdr->num_auth_rr, hdr->num_addi_rr);
+
+    /* DNS request */
+    if ((hdr->flags & QR) == 1) {
+        name      = (const char *)hdr + sizeof(*hdr);
+        req_type  = ((uint16_t *)(name + strlen(name) + 1))[0];
+        req_class = ((uint16_t *)(name + strlen(name) + 1))[1];
+        fprintf(stderr,
+                "\tRequest Type %x Request class %x "
+                "Request domain %s\n",
+                ntohs(req_type), ntohs(req_class), name);
+    }
 }
 
 static void dump_packet1(const struct packet_info *pi)
@@ -636,6 +662,7 @@ int main(int argc, char *argv[])
 
         pi = extract_buffer(recvbuf, recvlen);
         if (pi) {
+            /* UDP packet and DNS request */
             if (!pi->pi_tcphdr && ntohs(pi->pi_udp->dest) == 53) {
                 struct dnsv4udp_respond_packet pkt;
                 INIT_DNSV4UDP_RESPOND_PACKET(&pkt);
@@ -645,19 +672,19 @@ int main(int argc, char *argv[])
                             pkt.data.iov_len);
 
                     if (pi2) {
-                        /* dump capture packet */
+                        fprintf(stderr, "CAPTURE PACKET:\n");
                         dump_packet1(pi);
                         dump_dnspacket(pi->pi_data.iov_base,
                                        pi->pi_data.iov_len);
 
-                        /* dump constructor packet */
+                        fprintf(stderr, "CONSTRUCTOR PACKET:\n");
                         dump_packet1(pi2);
                         dump_dnspacket(pi2->pi_data.iov_base,
                                        pi2->pi_data.iov_len);
                         free_packet(pi2);
-
-                        send(fd, pkt.data.iov_base, pkt.data.iov_len, 0);
                     }
+
+                    send(fd, pkt.data.iov_base, pkt.data.iov_len, 0);
                     pkt.free(&pkt);
                 }
 
