@@ -46,7 +46,6 @@
 #endif
 
 #define RECV_SIZE     (2048 * 32)
-#define OPT_BUFF_SIZE 40
 #define BUFFER_SIZE   2048
 
 struct packet_info {
@@ -184,14 +183,14 @@ static int dnsresp_make(struct dnsv4udp_respond_packet *resp,
     offset += sizeof(ttl);
     memcpy(data + offset, "\x00\x04", 2);
     offset += 2;
-    if (!memcmp(glass, "\x00\x01", 2)) {/* A */
-        inet_pton(AF_INET, "192.168.43.1", &addr);
+    //if (!memcmp(glass, "\x00\x01", 2)) {/* A */
+        inet_pton(AF_INET, "192.168.100.5", &addr);
         memcpy(data + offset, &addr, sizeof(addr));
         offset += sizeof(addr);
-    } else {/* PTR */
-        memcpy(data + offset, "192.168.43.1", 13);
-        offset += 13;
-    }
+    //} else {/* PTR */
+    //    memcpy(data + offset, "192.168.43.1", 13);
+    //    offset += 13;
+    //}
 
     /* Make UDP header */
     memcpy(&udp->dest, &pi->pi_udp->source, sizeof(udp->dest));
@@ -331,7 +330,7 @@ static struct packet_info *extract_buffer(const char *buf, size_t buflen)
                             rawlen / 2 + rawlen % 2);
     if (ncs || tcs){
         fprintf(stderr,
-                "ncs or tcs reverse checksum invalid[ncs %u tcs %u]\n",
+                "ncs(%u) or tcs(%u) reverse checksum invalid\n",
                 ncs, tcs);
         errno = -109;
         return NULL;
